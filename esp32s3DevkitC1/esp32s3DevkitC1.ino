@@ -260,12 +260,12 @@ void loop(){
   mpu.dmpGetQuaternion(&quaternion, buffer);
   mpu.dmpGetGravity(&gravity, &quaternion);
   mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
-  joystick_x_value = joystick_x_value * cos(ypr[0] - starting_yaw) - joystick_y_value * sin(ypr[0] - starting_yaw);
-  joystick_y_value = joystick_x_value * sin(ypr[0] - starting_yaw) + joystick_y_value * cos(ypr[0] - starting_yaw); 
-  Serial.print("Joystick Y transformed:");
-  Serial.println(joystick_y_value);
-  Serial.print("Joystick X transformed:");
-  Serial.println(joystick_x_value); 
+  // joystick_x_value = joystick_x_value * cos(ypr[0] - starting_yaw) - joystick_y_value * sin(ypr[0] - starting_yaw);
+  // joystick_y_value = joystick_x_value * sin(ypr[0] - starting_yaw) + joystick_y_value * cos(ypr[0] - starting_yaw); 
+  // Serial.print("Joystick Y transformed:");
+  // Serial.println(joystick_y_value);
+  // Serial.print("Joystick X transformed:");
+  // Serial.println(joystick_x_value); 
   // current_yaw = 359 - current_yaw; //- ((current_yaw < 0) * 360);
   // Serial.print("Starting Yaw:");
   // Serial.println(starting_yaw);
@@ -308,7 +308,7 @@ void loop(){
 
 void CalculateWheelSpeed(int joystickX,int joystickY){
   int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
-  desired_angle += (desired_angle < 0) * 360;
+  desired_angle += current_yaw;
   Serial.print("Desired Angle 0 360:");
   Serial.println(desired_angle);
   int vector_length = (joystickX * joystickX) + (joystickY * joystickY);
