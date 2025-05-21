@@ -40,7 +40,7 @@ struct acknowledgePayload{
   byte batteryVoltageHighByte;
   byte batteryVoltageLowByte;
   bool impactDetected;
-  int carYaw;
+  float carYaw;
 };
 
 struct controller_payload received_payload;
@@ -53,7 +53,12 @@ String success;
 
 //car mpu variables
 MPU6050 mpu;
-int starting_yaw;
+float starting_yaw = 0;
+float current_yaw = 0;
+float prev_yaw = 0;
+unsigned long start_timer = 0;
+unsigned long time_elapsed = 0;
+unsigned long stabilization_time = 5000;
 uint8_t buffer[64]; 
 Quaternion quaternion;
 VectorFloat gravity;
@@ -93,13 +98,25 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   //MasterSend(startbyte,1,received_payload.joystick[0],lmbrake,received_payload.joystick[1],rmbrake,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
   delay(50);
   //MasterReceive();
-  getYaw();
 }
 
 void setup(){
   digitalWrite(48,LOW);
   Serial.begin(115200);
   Wire.begin();
+  Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
+  mpu.dmpInitialize();
+  mpu.setDMPEnabled(true);
+  int temp_readings = 0;
+  while(temp_readings < 200){
+    if (mpu.getFIFOCount() >= 42) {
+      if (mpu.dmpGetCurrentFIFOPacket(buffer)) {
+        temp_readings++;
+        delay(10);
+      }
+    }
+  }
+  delay(2000);
   // Wire1.begin(10,11,100000);
   // scanI2C(Wire);
   // scanI2C(Wire1);
@@ -125,24 +142,8 @@ void setup(){
   // Register for a callback function that will be called when data is received
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   //pwm.begin();
-  Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
-  mpu.dmpInitialize();
-  mpu.setDMPEnabled(true);
-  int temp_readings = 0;
-  while(temp_readings < 200){
-    if (mpu.getFIFOCount() >= 42) {
-      if (mpu.dmpGetCurrentFIFOPacket(buffer)) {
-        temp_readings++;
-        delay(10);
-      }
-    }
-  }
-  mpu.dmpGetCurrentFIFOPacket(buffer);
-  mpu.dmpGetQuaternion(&quaternion, buffer);
-  mpu.dmpGetGravity(&gravity, &quaternion);
-  mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
-  starting_yaw = ypr[0] * 180 / M_PI;
-  starting_yaw = starting_yaw + ((starting_yaw < 0) * 360);
+
+  stabilization_time += millis();
 }
  
 void scanI2C(TwoWire &wiretest) {
@@ -164,27 +165,30 @@ void scanI2C(TwoWire &wiretest) {
 
 void loop(){
   esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&ack_payload, sizeof(ack_payload));
-  // if (result == ESP_OK) {
-  //   Serial.println("Sent with success");
-  // }
-  // else {
-  //   Serial.println("Error sending the data");
-  // }
-  delay(500);
-}
-
-void getYaw(){
   if(mpu.dmpGetCurrentFIFOPacket(buffer)){
     mpu.dmpGetQuaternion(&quaternion, buffer);
     mpu.dmpGetGravity(&gravity, &quaternion);
     mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
-    ack_payload.carYaw = ypr[0] * 180 / M_PI - starting_yaw + ((ypr[0] * 180 / M_PI)<0)*360 ;
-    ack_payload.carYaw = ack_payload.carYaw + ((ack_payload.carYaw < 0) * 360);
-    ack_payload.carYaw = (abs(359-ack_payload.carYaw) + 90)%360;
+    current_yaw = -ypr[0] * 180/ M_PI;
+    Serial.print("YAW solo IS:");
+    Serial.println(current_yaw);
+    if(millis() - start_timer < stabilization_time){
+      starting_yaw += 0.95 * (current_yaw - prev_yaw);
+      prev_yaw = current_yaw;
+    }
+    current_yaw = current_yaw - starting_yaw + 90;
+    current_yaw += ((current_yaw < 0) * 360);
+    ack_payload.carYaw = current_yaw;
+    //current_yaw = int(current_yaw) % 360;
     Serial.print("YAW IS:");
-    Serial.println(ack_payload.carYaw);
+    Serial.println(current_yaw);
+    Serial.print("WITH STARTING YAW:");
+    Serial.println(starting_yaw);
+    Serial.println();
   }
+  delay(500);
 }
+
 
 void MasterReceive()
 {//================================================================= Error Checking ==========================================================

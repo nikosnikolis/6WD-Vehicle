@@ -26,7 +26,7 @@ struct receiver_payload{
   byte batteryVoltageHighByte;
   byte batteryVoltageLowByte;
   bool impactDetected;
-  int carYaw;
+  float carYaw;
 };
 
 struct receiver_payload rec_payload;
@@ -45,9 +45,9 @@ int joystick_x_value = 0;
 int joystick_y_value = 0;
 const int joystick_btn = 14;
 const int button_deload_time = 800;
-int time_elapsed = 0;
 bool movement_mode = 0;
 int current_yaw_index = 0;
+int desired_angle = 0;
 
 //TFT VARIABLES
 const int TFT_CS = 18;
@@ -58,12 +58,15 @@ Adafruit_ST7735 display = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 //mpu variables
 MPU6050 mpu;
+float starting_yaw = 0;
+float current_yaw = 0;
+float prev_yaw = 0;
+unsigned long start_timer = 0;
+unsigned long stabilization_time = 5000;
 uint8_t buffer[64]; 
 Quaternion quaternion;
 VectorFloat gravity;
 float ypr[3];
-float starting_yaw;
-float current_yaw;
 //mpu variables
 
 
@@ -190,27 +193,15 @@ void setup(){
     
   }
   int temp_readings = 0;
-  while(temp_readings < 100){
+  while(temp_readings < 200){
     if (mpu.getFIFOCount() >= 42) {
       if (mpu.dmpGetCurrentFIFOPacket(buffer)) {
         temp_readings++;
-        delay(20);
+        delay(10);
       }
     }
   }
-  display.fillScreen(ST77XX_BLACK);
-  display.setCursor(0, 0);
-  display.print("Calibrating MPU");
   delay(2000);
-  mpu.dmpGetCurrentFIFOPacket(buffer);
-  mpu.dmpGetQuaternion(&quaternion, buffer);
-  mpu.dmpGetGravity(&gravity, &quaternion);
-  mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
-  starting_yaw = ypr[0] * 180 / M_PI;
-  starting_yaw = starting_yaw + ((starting_yaw < 0) * 360);
-  starting_yaw += 4;
-  starting_yaw = int(starting_yaw) % 360;
-  starting_yaw = starting_yaw * M_PI / 180;
   //setting up info to display like battery of the robot direction arrow and connection status
   display.fillScreen(ST77XX_BLACK);
   display.setCursor(0, 0);
@@ -224,7 +215,7 @@ void setup(){
   display.drawBitmap(80,60,arrow_bitmaps[0],BITMAP_WIDTH,BITMAP_HEIGHT,ST77XX_WHITE);
   //registering a callback function for when data is received
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
-
+  stabilization_time += millis();
 }
  
 void loop(){
@@ -233,27 +224,28 @@ void loop(){
   contr_payload.buttons[2] = digitalRead(button3);
   contr_payload.buttons[3] = digitalRead(button4);
   contr_payload.buttons[4] = digitalRead(button5);
-  if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
-    time_elapsed = millis();
-    contr_payload.buttons[12] = !contr_payload.buttons[12];
-  }
-  joystick_x_value = 1023-analogRead(joystick_x) - 512;
-  joystick_y_value = analogRead(joystick_y) - 512;
-  Serial.print("Joystick Y raw:");
-  Serial.println(joystick_y_value);
-  Serial.print("Joystick X raw:");
-  Serial.println(joystick_x_value);
-  if(abs(joystick_x_value) <= 70){
-      joystick_x_value = 0;
-    }
+  
+  // if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
+  //   time_elapsed = millis();
+  //   contr_payload.buttons[12] = !contr_payload.buttons[12];
+  // }
+  // joystick_x_value = 1023-analogRead(joystick_x) - 512;
+  // joystick_y_value = analogRead(joystick_y) - 512;
+  // Serial.print("Joystick Y raw:");
+  // Serial.println(joystick_y_value);
+  // Serial.print("Joystick X raw:");
+  // Serial.println(joystick_x_value);
+  // if(abs(joystick_x_value) <= 70){
+  //     joystick_x_value = 0;
+  //   }
 
-  if(abs(joystick_y_value) <= 70){
-      joystick_y_value = 0;
-    }
-  Serial.print("Joystick Y:");
-  Serial.println(joystick_y_value);
-  Serial.print("Joystick X:");
-  Serial.println(joystick_x_value);
+  // if(abs(joystick_y_value) <= 70){
+  //     joystick_y_value = 0;
+  //   }
+  // Serial.print("Joystick Y:");
+  // Serial.println(joystick_y_value);
+  // Serial.print("Joystick X:");
+  // Serial.println(joystick_x_value);
   Serial.print("Car Yaw:");
   Serial.println(rec_payload.carYaw);
   mpu.dmpGetCurrentFIFOPacket(buffer);
@@ -270,12 +262,25 @@ void loop(){
   // Serial.print("Starting Yaw:");
   // Serial.println(starting_yaw);
   Serial.print("Controller Yaw rad:");
-  current_yaw = ypr[0] - starting_yaw;
+  current_yaw = -ypr[0];
   Serial.println(current_yaw);
   current_yaw = current_yaw * (180 / M_PI);
   current_yaw += (current_yaw<0)*360;
+  if(millis() - start_timer < stabilization_time){
+      starting_yaw += 1 * (current_yaw - prev_yaw);
+      prev_yaw = current_yaw;
+    }
+  current_yaw = current_yaw - starting_yaw;
+  current_yaw += ((current_yaw < 0) * 360);
   Serial.print("Controller Yaw 0-360:");
   Serial.println(current_yaw);
+  if(Serial.available() > 0){
+    desired_angle = Serial.parseInt();
+    Serial.println("Read from serial");
+    Serial.read();
+  }
+  Serial.print("Desired Angle 0 360:");
+  Serial.println(desired_angle);
   // Serial.print("Button 1:");
   // Serial.println(digitalRead(button1));
   // Serial.print("Button 2:");
@@ -295,57 +300,67 @@ void loop(){
   // Serial.print("Joystick X mapped:");
   // Serial.println(contr_payload.joystick[1]);
   
-  if(joystick_x_value !=0 || joystick_y_value != 0){
+  // if(joystick_x_value !=0 || joystick_y_value != 0){
+  if(desired_angle != 0){
     CalculateWheelSpeed(joystick_x_value,joystick_y_value);
   }
-  else{
-    contr_payload.joystick[0] = joystick_x_value;
-    contr_payload.joystick[1] = joystick_y_value;
-  }
+  // }
+  // else{
+  //   contr_payload.joystick[0] = joystick_x_value;
+  //   contr_payload.joystick[1] = joystick_y_value;
+  // }
   esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&contr_payload, sizeof(contr_payload));
   delay(800);
 }
 
 void CalculateWheelSpeed(int joystickX,int joystickY){
-  int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
-  desired_angle += current_yaw;
-  Serial.print("Desired Angle 0 360:");
-  Serial.println(desired_angle);
-  int vector_length = (joystickX * joystickX) + (joystickY * joystickY);
+  // int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
+  
+  
+  int vector_length = 700;//(joystickX * joystickX) + (joystickY * joystickY);
   float movement_vector_length = sqrt(vector_length);
   // Serial.print("SQRT:");
   // Serial.println(movement_vector_length);
   float movement_vector_magnitude = constrain(movement_vector_length/512,0,1);
-  Serial.print("MAGNITUDE");
-  Serial.println(movement_vector_magnitude);
+  // Serial.print("MAGNITUDE");
+  // Serial.println(movement_vector_magnitude);
   Serial.print("ANGLE:");
-  Serial.println(rec_payload.carYaw - desired_angle);
-  if(abs((rec_payload.carYaw - desired_angle)%360) > 15){
+  Serial.println((desired_angle + int(current_yaw))%360);
+  int angle = int(rec_payload.carYaw - (desired_angle + current_yaw));
+  if(angle > 180){angle -= 360;}
+  if(angle < -180){angle += 360;}
+  Serial.print("ANGLE DIF:");
+  Serial.println(angle);
+  if(abs(angle) > 15){
     //0 indicates counter clock wise rotation and 1 indicates clockwise direction
     //this expression takes the difference between the two angles(we add 360 to wrap around if needed and mod with 360),
     //if the difference is less that 180 then go counter clock wise
-    bool rotate_direction = (((rec_payload.carYaw - desired_angle + 360) % 360) < 180);
+    bool rotate_direction = (angle < 0);
     Serial.print("Turn direction:");
     Serial.println(rotate_direction); 
-    float temp_rotation_speed = abs(rec_payload.carYaw - desired_angle)/360.0;
+    float temp_rotation_speed = abs(angle)/360.0;
+    Serial.print("TEMP Rotation Speed:");
+    Serial.println(temp_rotation_speed);
     float rotation_speed = constrain(temp_rotation_speed,0,1);
     Serial.print("Rotation Speed:");
     Serial.println(rotation_speed);
     if(rotate_direction){
+      Serial.println("COUNTER CLOCKWISE");
       //left side wheel speed
-      contr_payload.joystick[0] = movement_vector_magnitude * 255;
+      contr_payload.joystick[0] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
       //right side wheel speed
-      contr_payload.joystick[1] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
+      contr_payload.joystick[1] = movement_vector_magnitude * 255;
       Serial.print("Left motor Speed:");
       Serial.println(contr_payload.joystick[0]);
       Serial.print("Right motor Speed:");
       Serial.println(contr_payload.joystick[1]);
     }
     else{
+      Serial.println("CLOCKWISE");
       //left side wheel speed
-      contr_payload.joystick[0] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
+      contr_payload.joystick[0] = movement_vector_magnitude * 255;
       //right side wheel speed
-      contr_payload.joystick[1] = movement_vector_magnitude * 255;
+      contr_payload.joystick[1] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
       Serial.print("Left motor Speed:");
       Serial.println(contr_payload.joystick[0]);
       Serial.print("Right motor Speed:");
