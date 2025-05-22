@@ -98,20 +98,20 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 //displayed in the tft screen
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&rec_payload, incomingData, len);
-  //we add 4 degrees because the original value of looking forward is 0 degrees and the forward vector is +45 and -45 degrees from the starting yaw
-  int new_car_yaw_index = rec_payload.carYaw + 45;
+  //we add 45 degrees because the original value of looking forward is 0 degrees and the forward vector is +45 and -45 degrees from the starting yaw
+  int new_car_yaw_index = rec_payload.carYaw - current_yaw + 45;
   //if the yaw is greater than 360 we have done a full circle, this happens because the right arrow is between yaw 315 and 45 (or -45 and 45 starting from 0)
-  new_car_yaw_index -= (new_car_yaw_index>=360) * 360;
+  new_car_yaw_index += (new_car_yaw_index < 0) * 360;
   //we divide by 90 to get an index which corresponds to the direction the robot is facing
-  //0 = forward
-  //1 = left
-  //2 = down
-  //3 = right
+  //0 = right
+  //1 = forward
+  //2 = left
+  //3 = down
   new_car_yaw_index = new_car_yaw_index/90;
-  if(current_yaw_index != new_car_yaw_index){
+  if(current_yaw_index != (new_car_yaw_index % 4)){
     //clear the arrow rectangle bu making it all black, saving the new index as the current one and using the bitmap array to paint the new direction arrow
     display.fillRect(80,60,62,62,ST77XX_BLACK);
-    display.drawBitmap(80,60,arrow_bitmaps[new_car_yaw_index],BITMAP_WIDTH,BITMAP_HEIGHT,ST77XX_WHITE);
+    display.drawBitmap(80,60,arrow_bitmaps[new_car_yaw_index % 4],BITMAP_WIDTH,BITMAP_HEIGHT,ST77XX_WHITE);
     current_yaw_index = new_car_yaw_index;
   }
   int battery_voltage = (rec_payload.batteryVoltageHighByte<<8) | rec_payload.batteryVoltageLowByte;
@@ -192,6 +192,7 @@ void setup(){
     while(1);
     
   }
+
   int temp_readings = 0;
   while(temp_readings < 200){
     if (mpu.getFIFOCount() >= 42) {
@@ -207,12 +208,14 @@ void setup(){
   display.setCursor(0, 0);
   display.print("Robot Bat:");
   display.print("Waiting Data");
-  //display.fillRect(60,0,100,8,ST77XX_WHITE);
   display.setCursor(0,16);
+  //display connection status
   display.print("Conn Status:");
   display.setCursor(72,16);
   display.print("Stable");
+  //draw arrow bitmap for direction
   display.drawBitmap(80,60,arrow_bitmaps[0],BITMAP_WIDTH,BITMAP_HEIGHT,ST77XX_WHITE);
+  
   //registering a callback function for when data is received
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   stabilization_time += millis();
@@ -257,23 +260,27 @@ void loop(){
   // Serial.print("Joystick Y transformed:");
   // Serial.println(joystick_y_value);
   // Serial.print("Joystick X transformed:");
-  // Serial.println(joystick_x_value); 
-  // current_yaw = 359 - current_yaw; //- ((current_yaw < 0) * 360);
-  // Serial.print("Starting Yaw:");
-  // Serial.println(starting_yaw);
+  // Serial.println(joystick_x_value);
+  //Here we calculate the yaw of the controller, first in radians. We invert the value so that clockwise rotation decreases the value (by default the mpu6050 module does the opposite CW movement increases the value)
+  //then we use *180/M_PI to turn the radians into degrees from -180 to 180 then we transform it to 0-360 degrees since the joystick and the rc car MPU6050 also use the same logic 
   Serial.print("Controller Yaw rad:");
   current_yaw = -ypr[0];
   Serial.println(current_yaw);
   current_yaw = current_yaw * (180 / M_PI);
   current_yaw += (current_yaw<0)*360;
+  //the mpu6050 module uses a DMP (digital motion processor) which takes the data from the gyroscope and acceletometer and applies some calculations instead of them needed to be added by us, like kalman filters etc
+  //till the DMP warms up and has stabilized we use the current minus the previous yaw value to calculate the starting yaw
   if(millis() - start_timer < stabilization_time){
       starting_yaw += 1 * (current_yaw - prev_yaw);
       prev_yaw = current_yaw;
     }
+  //we subtract the starting yaw from the current, to find the differential yaw Dyaw = yawFinal-yawStarting
   current_yaw = current_yaw - starting_yaw;
   current_yaw += ((current_yaw < 0) * 360);
   Serial.print("Controller Yaw 0-360:");
   Serial.println(current_yaw);
+
+  ///only used for testing delete after installing joystick///
   if(Serial.available() > 0){
     desired_angle = Serial.parseInt();
     Serial.println("Read from serial");
@@ -281,6 +288,7 @@ void loop(){
   }
   Serial.print("Desired Angle 0 360:");
   Serial.println(desired_angle);
+
   // Serial.print("Button 1:");
   // Serial.println(digitalRead(button1));
   // Serial.print("Button 2:");
@@ -350,8 +358,11 @@ void CalculateWheelSpeed(int joystickX,int joystickY){
       contr_payload.joystick[0] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
       //we map to 80 because low values do not rotate the wheels at all (perhaps due to low voltage?)
       contr_payload.joystick[0] = map(contr_payload.joystick[0],0,255,80,255);
+      
       //right side wheel speed
       contr_payload.joystick[1] = movement_vector_magnitude * 255;
+      
+      //debug
       Serial.print("Left motor Speed:");
       Serial.println(contr_payload.joystick[0]);
       Serial.print("Right motor Speed:");
@@ -365,6 +376,8 @@ void CalculateWheelSpeed(int joystickX,int joystickY){
       contr_payload.joystick[1] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
       //we map to 80 because low values do not rotate the wheels at all (perhaps due to low voltage?)
       contr_payload.joystick[1] = map(contr_payload.joystick[1],0,255,80,255);
+      
+      //debug
       Serial.print("Left motor Speed:");
       Serial.println(contr_payload.joystick[0]);
       Serial.print("Right motor Speed:");
@@ -374,6 +387,8 @@ void CalculateWheelSpeed(int joystickX,int joystickY){
   else{
     contr_payload.joystick[0] = movement_vector_magnitude * 255;
     contr_payload.joystick[1] = movement_vector_magnitude * 255;
+    
+    //debug
     Serial.print("Left motor Speed:");
     Serial.println(contr_payload.joystick[0]);
     Serial.print("Right motor Speed:");
