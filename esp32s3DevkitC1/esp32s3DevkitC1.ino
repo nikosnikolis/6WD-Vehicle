@@ -317,7 +317,7 @@ void CalculateWheelSpeed(int joystickX,int joystickY){
   // int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
   
   
-  int vector_length = 700;//(joystickX * joystickX) + (joystickY * joystickY);
+  int vector_length = (joystickX * joystickX) + (joystickY * joystickY);
   float movement_vector_length = sqrt(vector_length);
   // Serial.print("SQRT:");
   // Serial.println(movement_vector_length);
@@ -338,16 +338,18 @@ void CalculateWheelSpeed(int joystickX,int joystickY){
     bool rotate_direction = (angle < 0);
     Serial.print("Turn direction:");
     Serial.println(rotate_direction); 
-    float temp_rotation_speed = abs(angle)/360.0;
+    float temp_rotation_speed = abs(angle)/180.0;
     Serial.print("TEMP Rotation Speed:");
     Serial.println(temp_rotation_speed);
-    float rotation_speed = constrain(temp_rotation_speed,0,1);
+    float rotation_speed = constrain(temp_rotation_speed,0.2,1);
     Serial.print("Rotation Speed:");
     Serial.println(rotation_speed);
     if(rotate_direction){
       Serial.println("COUNTER CLOCKWISE");
       //left side wheel speed
       contr_payload.joystick[0] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
+      //we map to 80 because low values do not rotate the wheels at all (perhaps due to low voltage?)
+      contr_payload.joystick[0] = map(contr_payload.joystick[0],0,255,80,255);
       //right side wheel speed
       contr_payload.joystick[1] = movement_vector_magnitude * 255;
       Serial.print("Left motor Speed:");
@@ -361,6 +363,8 @@ void CalculateWheelSpeed(int joystickX,int joystickY){
       contr_payload.joystick[0] = movement_vector_magnitude * 255;
       //right side wheel speed
       contr_payload.joystick[1] = movement_vector_magnitude * 255 - movement_vector_magnitude * 255 * rotation_speed;
+      //we map to 80 because low values do not rotate the wheels at all (perhaps due to low voltage?)
+      contr_payload.joystick[1] = map(contr_payload.joystick[1],0,255,80,255);
       Serial.print("Left motor Speed:");
       Serial.println(contr_payload.joystick[0]);
       Serial.print("Right motor Speed:");
