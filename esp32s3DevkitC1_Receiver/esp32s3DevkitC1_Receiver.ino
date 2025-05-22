@@ -86,11 +86,11 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   // Serial.print("Bytes received: ");
   // Serial.println(len);
   int i;
-  // for(i=0; i<12; i+=2){
-  //   servo_pwm[i/2] = servo_pwm[i/2] - (SERVOSTEP*received_payload.buttons[i]) + (SERVOSTEP*received_payload.buttons[i+1]); 
-  //   servo_pwm[i/2] = constrain(servo_pwm[i/2],SERVOMIN,SERVOMAX);
-  //   pwm.setPWM(i/2,0,servo_pwm[i/2]);
-  // }
+  for(i=0; i<12; i+=2){
+    servo_pwm[i/2] = servo_pwm[i/2] - (SERVOSTEP*received_payload.buttons[i]) + (SERVOSTEP*received_payload.buttons[i+1]); 
+    servo_pwm[i/2] = constrain(servo_pwm[i/2],SERVOMIN,SERVOMAX);
+    pwm.setPWM(i/2,0,servo_pwm[i/2]);
+  }
   Serial.print("Left motor speed:");
   Serial.println(received_payload.joystick[0]);
   Serial.print("Right Motor Speed:");
@@ -117,9 +117,9 @@ void setup(){
     }
   }
   delay(2000);
-  // Wire1.begin(10,11,100000);
-  // scanI2C(Wire);
-  // scanI2C(Wire1);
+  Wire1.begin(10,11,100000);
+  scanI2C(Wire);
+  scanI2C(Wire1);
   WiFi.mode(WIFI_STA);
 
   // Init ESP-NOW
@@ -141,7 +141,8 @@ void setup(){
   }
   // Register for a callback function that will be called when data is received
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
-  //pwm.begin();
+  pwm.begin();
+  pwm.setPWMFreq(50);
 
   stabilization_time += millis();
 }
