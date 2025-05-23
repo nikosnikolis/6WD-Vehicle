@@ -18,7 +18,7 @@ const int batteryVoltageTable[][3] = {{1680,100,ST77XX_GREEN},{1660,95,ST77XX_GR
 int battery_index = 0;
 
 struct controller_payload{
-  bool buttons[13] = {0,0,0,0,0,0,0,0,0,0,0,0,0};
+  bool buttons[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
   short joystick[2] = {0,0};
 };
 struct receiver_payload{
@@ -45,6 +45,7 @@ int joystick_x_value = 0;
 int joystick_y_value = 0;
 const int joystick_btn = 14;
 const int button_deload_time = 800;
+unsigned long time_elapsed = 0;
 bool movement_mode = 0;
 int current_yaw_index = 0;
 int desired_angle = 0;
@@ -228,10 +229,11 @@ void loop(){
   contr_payload.buttons[3] = digitalRead(button4);
   contr_payload.buttons[4] = digitalRead(button5);
   
-  // if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
-  //   time_elapsed = millis();
-  //   contr_payload.buttons[12] = !contr_payload.buttons[12];
-  // }
+  if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
+    time_elapsed = millis();
+    movement_mode = !movement_mode;
+    //ADD DISPLAY MESSAGE TO KNOW WHAT MODE WE USE
+  }
   // joystick_x_value = 1023-analogRead(joystick_x) - 512;
   // joystick_y_value = analogRead(joystick_y) - 512;
   // Serial.print("Joystick Y raw:");
@@ -310,7 +312,12 @@ void loop(){
   
   // if(joystick_x_value !=0 || joystick_y_value != 0){
   if(desired_angle != 0){
-    CalculateWheelSpeed(joystick_x_value,joystick_y_value);
+    if(movement_mode){
+      WorldPosMovement(joystick_x_value,joystick_y_value);
+    }
+    else{
+      TankControlMovement(joystick_x_value,joystick_y_value);
+    }
   }
   // }
   // else{
@@ -321,7 +328,44 @@ void loop(){
   delay(800);
 }
 
-void CalculateWheelSpeed(int joystickX,int joystickY){
+void TankControlMovement(int joystickX,int joystickY){
+  int vector_length = (joystickX * joystickX) + (joystickY * joystickY);
+  float movement_vector_length = sqrt(vector_length);
+  float movement_vector_magnitude = constrain(movement_vector_length/512,0.4,1);
+  int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
+  if(abs(desired_angle) > 135){
+    //left side wheel speed
+    contr_payload.joystick[0] = -160;
+    //right side wheel speed
+    contr_payload.joystick[1] = 160;
+      
+    //debug
+    Serial.print("Left motor Speed:");
+    Serial.println(contr_payload.joystick[0]);
+    Serial.print("Right motor Speed:");
+    Serial.println(contr_payload.joystick[1]);
+  }
+  else if(abs(desired_angle) < 45){
+    //left side wheel speed
+    contr_payload.joystick[0] = -160;
+    //right side wheel speed
+    contr_payload.joystick[1] = 160;
+      
+    //debug
+    Serial.print("Left motor Speed:");
+    Serial.println(contr_payload.joystick[0]);
+    Serial.print("Right motor Speed:");
+    Serial.println(contr_payload.joystick[1]);
+  }
+  else{
+    //left side wheel speed
+    contr_payload.joystick[0] = movement_vector_magnitude * 255;
+    //right side wheel speed
+    contr_payload.joystick[1] = movement_vector_magnitude * 255;
+  }
+}
+
+void WorldPosMovement(int joystickX,int joystickY){
   // int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
   
   
