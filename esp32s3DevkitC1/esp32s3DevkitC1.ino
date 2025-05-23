@@ -38,12 +38,21 @@ const int button1 = 15;
 const int button2 = 7;
 const int button3 = 6;
 const int button4 = 5;
-const int button5 = 2;
-const int joystick_x = 17;
-const int joystick_y = 16;
+const int button5 = 17;
+
+const int button6 = 48;
+const int button7 = 47;
+const int button8 = 36;
+const int button9 = 35;
+const int button10 = 10;
+const int button11 = 14;
+const int button12 = 13;
+
+const int joystick_x = 2;
+const int joystick_y = 1;
 int joystick_x_value = 0;
 int joystick_y_value = 0;
-const int joystick_btn = 14;
+const int joystick_btn = 38;
 const int button_deload_time = 800;
 unsigned long time_elapsed = 0;
 bool movement_mode = 0;
@@ -140,18 +149,18 @@ void setup(){
   //setting up the tft display
   display.initR(INITR_BLACKTAB);
   //rotating by 90 degrees making the screen black and setting the curson on the top left corner of the screen
-  display.setRotation(1);
+  display.setRotation(3);
   display.fillScreen(ST77XX_BLACK);
   display.setTextColor(ST77XX_WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
 
-  mpu.dmpInitialize();
-  mpu.setDMPEnabled(true);
-  if(!mpu.testConnection()){
-    display.print("MPU FAILED, RESTART");
-    while(1);
-  }   
+  // mpu.dmpInitialize();
+  // mpu.setDMPEnabled(true);
+  // if(!mpu.testConnection()){
+  //   display.print("MPU FAILED, RESTART");
+  //   while(1);
+  // }   
   Serial.println("MPU6050 connection successful");
   //setting up pinmode for buttons and joystick input
   analogReadResolution(10);
@@ -160,6 +169,13 @@ void setup(){
   pinMode(button3,INPUT_PULLUP);
   pinMode(button4,INPUT_PULLUP);
   pinMode(button5,INPUT_PULLUP);
+  pinMode(button6,INPUT_PULLUP);
+  pinMode(button7,INPUT_PULLUP);
+  pinMode(button8,INPUT_PULLUP);
+  pinMode(button9,INPUT_PULLUP);
+  pinMode(button10,INPUT_PULLUP);
+  pinMode(button11,INPUT_PULLUP);
+  pinMode(button12,INPUT_PULLUP);
   pinMode(joystick_btn,INPUT_PULLUP);
   
 
@@ -194,16 +210,16 @@ void setup(){
     
   }
 
-  int temp_readings = 0;
-  while(temp_readings < 200){
-    if (mpu.getFIFOCount() >= 42) {
-      if (mpu.dmpGetCurrentFIFOPacket(buffer)) {
-        temp_readings++;
-        delay(10);
-      }
-    }
-  }
-  delay(2000);
+  // int temp_readings = 0;
+  // while(temp_readings < 200){
+  //   if (mpu.getFIFOCount() >= 42) {
+  //     if (mpu.dmpGetCurrentFIFOPacket(buffer)) {
+  //       temp_readings++;
+  //       delay(10);
+  //     }
+  //   }
+  // }
+  // delay(2000);
   //setting up info to display like battery of the robot direction arrow and connection status
   display.fillScreen(ST77XX_BLACK);
   display.setCursor(0, 0);
@@ -228,12 +244,19 @@ void loop(){
   contr_payload.buttons[2] = digitalRead(button3);
   contr_payload.buttons[3] = digitalRead(button4);
   contr_payload.buttons[4] = digitalRead(button5);
+  contr_payload.buttons[5] = digitalRead(button6);
+  contr_payload.buttons[6] = digitalRead(button7);
+  contr_payload.buttons[7] = digitalRead(button8);
+  contr_payload.buttons[8] = digitalRead(button9);
+  contr_payload.buttons[9] = digitalRead(button10);
+  contr_payload.buttons[10] = digitalRead(button11);
+  contr_payload.buttons[11] = digitalRead(button12);
   
-  if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
-    time_elapsed = millis();
-    movement_mode = !movement_mode;
-    //ADD DISPLAY MESSAGE TO KNOW WHAT MODE WE USE
-  }
+  // if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
+  //   time_elapsed = millis();
+  //   movement_mode = !movement_mode;
+  //   //ADD DISPLAY MESSAGE TO KNOW WHAT MODE WE USE
+  // }
   // joystick_x_value = 1023-analogRead(joystick_x) - 512;
   // joystick_y_value = analogRead(joystick_y) - 512;
   // Serial.print("Joystick Y raw:");
@@ -251,12 +274,12 @@ void loop(){
   // Serial.println(joystick_y_value);
   // Serial.print("Joystick X:");
   // Serial.println(joystick_x_value);
-  Serial.print("Car Yaw:");
-  Serial.println(rec_payload.carYaw);
-  mpu.dmpGetCurrentFIFOPacket(buffer);
-  mpu.dmpGetQuaternion(&quaternion, buffer);
-  mpu.dmpGetGravity(&gravity, &quaternion);
-  mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
+  // Serial.print("Car Yaw:");
+  // Serial.println(rec_payload.carYaw);
+  // mpu.dmpGetCurrentFIFOPacket(buffer);
+  // mpu.dmpGetQuaternion(&quaternion, buffer);
+  // mpu.dmpGetGravity(&gravity, &quaternion);
+  // mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
   // joystick_x_value = joystick_x_value * cos(ypr[0] - starting_yaw) - joystick_y_value * sin(ypr[0] - starting_yaw);
   // joystick_y_value = joystick_x_value * sin(ypr[0] - starting_yaw) + joystick_y_value * cos(ypr[0] - starting_yaw); 
   // Serial.print("Joystick Y transformed:");
@@ -291,16 +314,30 @@ void loop(){
   Serial.print("Desired Angle 0 360:");
   Serial.println(desired_angle);
 
-  // Serial.print("Button 1:");
-  // Serial.println(digitalRead(button1));
-  // Serial.print("Button 2:");
-  // Serial.println(digitalRead(button2));
-  // Serial.print("Button 3:");
-  // Serial.println(digitalRead(button3));
-  // Serial.print("Button 4:");
-  // Serial.println(digitalRead(button4));
-  // Serial.print("Button 5:");
-  // Serial.println(digitalRead(button5));
+  Serial.print("Button 1:");
+  Serial.println(digitalRead(button1));
+  Serial.print("Button 2:");
+  Serial.println(digitalRead(button2));
+  Serial.print("Button 3:");
+  Serial.println(digitalRead(button3));
+  Serial.print("Button 4:");
+  Serial.println(digitalRead(button4));
+  Serial.print("Button 5:");
+  Serial.println(digitalRead(button5));
+  Serial.print("Button 6:");
+  Serial.println(digitalRead(button6));
+  Serial.print("Button 7:");
+  Serial.println(digitalRead(button7));
+  Serial.print("Button 8:");
+  Serial.println(digitalRead(button8));
+  Serial.print("Button 9:");
+  Serial.println(digitalRead(button9));
+  Serial.print("Button 10:");
+  Serial.println(digitalRead(button10));
+  Serial.print("Button 11:");
+  Serial.println(digitalRead(button11));
+  Serial.print("Button 12:");
+  Serial.println(digitalRead(button12));
   // Serial.print("Joystick Button:");
   // Serial.println(digitalRead(joystick_btn));
   // Serial.print("MOVEMENT MODE:");
