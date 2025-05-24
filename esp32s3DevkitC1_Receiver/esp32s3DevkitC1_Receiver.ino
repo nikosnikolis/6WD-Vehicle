@@ -31,7 +31,7 @@ uint8_t slaveAddress[] = {0x8c,0xbf,0xea,0x86,0xf2,0xb8};
 int forward_speed, rotate_speed;
 
 struct controller_payload{
-  bool buttons[13];
+  bool buttons[12];
   short joystick[2];
 };
 
@@ -47,9 +47,8 @@ struct controller_payload received_payload;
 struct acknowledgePayload ack_payload;
 
 
-char message[12] = "Hello back";
 esp_now_peer_info_t peerInfo;
-String success;
+byte failed_attempts = 0;
 
 //car mpu variables
 MPU6050 mpu;
@@ -74,17 +73,18 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   Serial.print("\r\nLast Packet Send Status:\t");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
   if (status ==0){
-    success = "Delivery Success :)";
+    failed_attempts = 0;
   }
   else{
-    success = "Delivery Fail :(";
+    failed_attempts += 1;
+    if(failed_attempts >=5){
+        //MasterSend(startbyte,1,225,1,225,1,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
+    }
   }
 }
 
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&received_payload, incomingData, sizeof(received_payload));
-  // Serial.print("Bytes received: ");
-  // Serial.println(len);
   int i;
   for(i=0; i<12; i+=2){
     servo_pwm[i/2] = servo_pwm[i/2] - (SERVOSTEP*received_payload.buttons[i]) + (SERVOSTEP*received_payload.buttons[i+1]); 
