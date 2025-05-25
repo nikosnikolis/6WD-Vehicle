@@ -34,19 +34,19 @@ struct controller_payload contr_payload;
 esp_now_peer_info_t peerInfo;
 String success;
 
-const int button1 = 15;
-const int button2 = 7;
-const int button3 = 6;
-const int button4 = 5;
-const int button5 = 17;
+const int button1 = 14;
+const int button2 = 17;
+const int button3 = 13;
+const int button4 = 10;
+const int button5 = 6;
 
-const int button6 = 48;
-const int button7 = 47;
-const int button8 = 36;
+const int button6 = 7;
+const int button7 = 5;
+const int button8 = 15;
 const int button9 = 35;
-const int button10 = 10;
-const int button11 = 14;
-const int button12 = 13;
+const int button10 = 36;
+const int button11 = 48;
+const int button12 = 47;
 
 const int joystick_x = 2;
 const int joystick_y = 1;
@@ -148,13 +148,15 @@ void setup(){
 
   //setting up the tft display
   display.initR(INITR_BLACKTAB);
-  //rotating by 90 degrees making the screen black and setting the curson on the top left corner of the screen
+
+  //rotating by 270 degrees making the screen black and setting the curson on the top left corner of the screen
   display.setRotation(3);
   display.fillScreen(ST77XX_BLACK);
   display.setTextColor(ST77XX_WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
 
+  //initializing mpu6050 module and dmp for filtering mpu measurements
   // mpu.dmpInitialize();
   // mpu.setDMPEnabled(true);
   // if(!mpu.testConnection()){
@@ -162,6 +164,7 @@ void setup(){
   //   while(1);
   // }   
   Serial.println("MPU6050 connection successful");
+
   //setting up pinmode for buttons and joystick input
   analogReadResolution(10);
   pinMode(button1,INPUT_PULLUP);
