@@ -4,6 +4,11 @@
 #include <Adafruit_PWMServoDriver.h>
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
+#include <Adafruit_NeoPixel.h>
+#include "esp_system.h"
+
+#define RGB_PIN     48    // Try this first
+#define NUM_PIXELS  1
 
 #define startbyte 0x0F
 #define I2Caddress 0x07
@@ -27,11 +32,10 @@ byte i2cfreq=0;
 //TREX VARIABLES
 
 uint8_t slaveAddress[] = {0x8c,0xbf,0xea,0x86,0xf2,0xb8};
-
-int forward_speed, rotate_speed;
+Adafruit_NeoPixel rgb(NUM_PIXELS, RGB_PIN, NEO_GRB + NEO_KHZ800);
 
 struct controller_payload{
-  bool buttons[13];
+  bool buttons[12];
   short joystick[2];
 };
 
@@ -47,9 +51,10 @@ struct controller_payload received_payload;
 struct acknowledgePayload ack_payload;
 
 
-char message[12] = "Hello back";
 esp_now_peer_info_t peerInfo;
-String success;
+bool waiting_response = true;
+unsigned long heartbeat_timer = 0;
+byte failed_attempts = 0;
 
 //car mpu variables
 MPU6050 mpu;
@@ -73,18 +78,24 @@ int servo_pwm[6] = {SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN};
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   Serial.print("\r\nLast Packet Send Status:\t");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  Serial.print("Response:");
+  Serial.println(waiting_response);
   if (status ==0){
-    success = "Delivery Success :)";
   }
   else{
-    success = "Delivery Fail :(";
   }
 }
 
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  heartbeat_timer = millis();
+  if(len == sizeof(bool)){
+    esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&waiting_response, sizeof(bool));
+    waiting_response = false;
+    //heartbeat_timer = millis();
+    Serial.print("Pinged, sent response");
+    return;
+  }
   memcpy(&received_payload, incomingData, sizeof(received_payload));
-  // Serial.print("Bytes received: ");
-  // Serial.println(len);
   int i;
   for(i=0; i<12; i+=2){
     servo_pwm[i/2] = servo_pwm[i/2] - (SERVOSTEP*received_payload.buttons[i]) + (SERVOSTEP*received_payload.buttons[i+1]); 
@@ -95,29 +106,37 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(received_payload.joystick[0]);
   Serial.print("Right Motor Speed:");
   Serial.println(received_payload.joystick[1]);
-  //MasterSend(startbyte,1,received_payload.joystick[0],lmbrake,received_payload.joystick[1],rmbrake,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
+  MasterSend(startbyte,2,received_payload.joystick[0],lmbrake,received_payload.joystick[1],rmbrake,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
   delay(50);
-  //MasterReceive();
+  MasterReceive();
 }
 
 void setup(){
   digitalWrite(48,LOW);
   Serial.begin(115200);
-  Wire.begin();
+  rgb.begin();
+  rgb.show(); // Initialize to off
+  rgb.setPixelColor(0, rgb.Color(0, 0, 255)); //blue
+  rgb.show();
+  esp_reset_reason_t reason = esp_reset_reason();
+  Serial.print("Reset reason: ");
+  Serial.println(reason);
+  delay(4000);
+  Wire.begin(10,9);
   Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
   mpu.dmpInitialize();
   mpu.setDMPEnabled(true);
-  int temp_readings = 0;
-  while(temp_readings < 200){
-    if (mpu.getFIFOCount() >= 42) {
-      if (mpu.dmpGetCurrentFIFOPacket(buffer)) {
-        temp_readings++;
-        delay(10);
-      }
-    }
-  }
-  delay(2000);
-  Wire1.begin(10,11,100000);
+  // int temp_readings = 0;
+  // while(temp_readings < 200){
+  //   if (mpu.getFIFOCount() >= 42) {
+  //     if (mpu.dmpGetCurrentFIFOPacket(buffer)) {
+  //       temp_readings++;
+  //       delay(10);
+  //     }
+  //   }
+  // }
+  //delay(2000);
+  Wire1.begin(1,5,100000);
   scanI2C(Wire);
   scanI2C(Wire1);
   WiFi.mode(WIFI_STA);
@@ -143,7 +162,11 @@ void setup(){
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   pwm.begin();
   pwm.setPWMFreq(50);
-
+  while(waiting_response){
+    Serial.println("Waiting for connection...");
+    delay(100);
+  }
+  heartbeat_timer = millis();
   stabilization_time += millis();
 }
  
@@ -158,36 +181,50 @@ void scanI2C(TwoWire &wiretest) {
     if (error == 0) {
       Serial.print("I2C device found at 0x");
       Serial.println(address, HEX);
-      return;
     }
   }
   Serial.println("Failed");
 }
 
 void loop(){
-  esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&ack_payload, sizeof(ack_payload));
-  if(mpu.dmpGetCurrentFIFOPacket(buffer)){
-    mpu.dmpGetQuaternion(&quaternion, buffer);
-    mpu.dmpGetGravity(&gravity, &quaternion);
-    mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
-    current_yaw = -ypr[0] * 180/ M_PI;
-    Serial.print("YAW solo IS:");
-    Serial.println(current_yaw);
-    if(millis() - start_timer < stabilization_time){
-      starting_yaw += 0.95 * (current_yaw - prev_yaw);
-      prev_yaw = current_yaw;
-    }
-    current_yaw = current_yaw - starting_yaw + 90;
-    current_yaw += ((current_yaw < 0) * 360);
-    ack_payload.carYaw = current_yaw;
-    //current_yaw = int(current_yaw) % 360;
-    Serial.print("YAW IS:");
-    Serial.println(current_yaw);
-    Serial.print("WITH STARTING YAW:");
-    Serial.println(starting_yaw);
-    Serial.println();
+  if(millis() - heartbeat_timer > 500){
+    waiting_response = true;
+    rgb.setPixelColor(0, rgb.Color(255, 255, 0)); //red
+    rgb.show();
   }
-  delay(500);
+  if(waiting_response){
+    Serial.println("Disconnected, waiting ping...");
+    MasterSend(startbyte,1,225,1,225,1,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
+    delay(100);
+  }
+  else{
+    rgb.setPixelColor(0, rgb.Color(0, 255, 0)); //green
+    rgb.show();
+    if(mpu.dmpGetCurrentFIFOPacket(buffer)){
+      mpu.dmpGetQuaternion(&quaternion, buffer);
+      mpu.dmpGetGravity(&gravity, &quaternion);
+      mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
+      current_yaw = -ypr[0] * 180/ M_PI;
+      // Serial.print("YAW solo IS:");
+      // Serial.println(current_yaw);
+      if(millis() - start_timer < stabilization_time){
+        starting_yaw += 0.95 * (current_yaw - prev_yaw);
+        prev_yaw = current_yaw;
+      }
+      current_yaw = current_yaw - starting_yaw + 90;
+      current_yaw += ((current_yaw < 0) * 360);
+      ack_payload.carYaw = current_yaw;
+    current_yaw = int(current_yaw) % 360;
+    // Serial.print("YAW IS:");
+    // Serial.println(current_yaw);
+    // Serial.print("WITH STARTING YAW:");
+    // Serial.println(starting_yaw);
+    // Serial.println();
+    }
+    esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&ack_payload, sizeof(ack_payload));
+    Serial.println("Sent ack payload");
+    delay(100);
+  }
 }
 
 
@@ -226,10 +263,12 @@ void MasterReceive()
   ack_payload.errorFlag = Wire1.read();
   Serial.println(ack_payload.errorFlag,BIN);
   
-  i=Wire1.read()*256; + Wire1.read();                                  // T'REX battery voltage   
+  ack_payload.batteryVoltageHighByte = Wire1.read(); 
+  ack_payload.batteryVoltageLowByte = Wire1.read();                                  // T'REX battery voltage   
+  i = (ack_payload.batteryVoltageHighByte << 8) | ack_payload.batteryVoltageLowByte;
   Serial.print("Battery Voltage:\t");
-  Serial.print(int(i/100));Serial.print(".");                      
-  Serial.print(i-(int(i/10)*10));Serial.println("V");
+  Serial.print(i);
+  Serial.println("V");
   
   i=Wire1.read()*256+Wire1.read();
   Serial.print("Left  Motor Current:\t");
