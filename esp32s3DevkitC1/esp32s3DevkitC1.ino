@@ -94,7 +94,6 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   heartbeat_timer = millis();
   if(len == sizeof(bool)){
     waiting_response = false;
-    printDisplay();
     return;
   }
   if(!last_status_connected){
