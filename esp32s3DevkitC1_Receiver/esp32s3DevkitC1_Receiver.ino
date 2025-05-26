@@ -14,7 +14,7 @@
 #define I2Caddress 0x07
 #define SERVOMIN 150
 #define SERVOMAX 600
-#define SERVOSTEP 20
+#define SERVOSTEP 15
 
 //TREX VARIABLES
 int sv[6]={1500,1500,1500,1500,1500,1500};                 // servo positions: if == 0 then the servo is not used
@@ -71,7 +71,7 @@ float ypr[3];
 //car mpu variables
 
 //pca9685 + motor variables
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver();
 int servo_pwm[6] = {SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN};
 //pca9685 + motor variables
 
@@ -91,16 +91,15 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   if(len == sizeof(bool)){
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&waiting_response, sizeof(bool));
     waiting_response = false;
-    //heartbeat_timer = millis();
     Serial.print("Pinged, sent response");
     return;
   }
   memcpy(&received_payload, incomingData, sizeof(received_payload));
   int i;
   for(i=0; i<12; i+=2){
-    servo_pwm[i/2] = servo_pwm[i/2] - (SERVOSTEP*received_payload.buttons[i]) + (SERVOSTEP*received_payload.buttons[i+1]); 
+    servo_pwm[i/2] = servo_pwm[i/2] + (SERVOSTEP*received_payload.buttons[i]) - (SERVOSTEP*received_payload.buttons[i+1]); 
     servo_pwm[i/2] = constrain(servo_pwm[i/2],SERVOMIN,SERVOMAX);
-    pwm.setPWM(i/2,0,servo_pwm[i/2]);
+    pca.setPWM(i/2,0,servo_pwm[i/2]);
   }
   Serial.print("Left motor speed:");
   Serial.println(received_payload.joystick[0]);
@@ -112,18 +111,32 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 }
 
 void setup(){
-  digitalWrite(48,LOW);
   Serial.begin(115200);
+
+  //We use the on board rgb of the devkit to display the connection status, its only used for debug so it won't be visible in the final product
+  //Blue means the esp32 is in setup mode, if there is no connection in the setup mode the rgb will stay blue
+  //Green means that there is a stable connection and the two esp boards communicate 
+  //Yellow means that the connection is lost and the esp enters a wait mode till the two devices re establish communication 
   rgb.begin();
   rgb.show(); // Initialize to off
   rgb.setPixelColor(0, rgb.Color(0, 0, 255)); //blue
   rgb.show();
+  //used only for debug, prints the reason esp reset usually its reason 1.Manual reset via the button or usb was connected which resets the esp
   esp_reset_reason_t reason = esp_reset_reason();
   Serial.print("Reset reason: ");
   Serial.println(reason);
-  delay(4000);
+
+  delay(1000);
+  //Wire is used to communicate with the MPU6050 and the PCA9685 modules, mpu and pca require wire and not wire1
   Wire.begin(10,9);
-  Serial.println(mpu.testConnection() ? "MPU6050 connection successful" : "MPU6050 connection failed");
+  if(mpu.testConnection()) {
+    Serial.println("Mpu connection is solid");
+    }
+  else{
+    Serial.println("Mpu connection failed restarting automatically...");
+    ESP.restart();
+  }
+  //initializing mpu6050 module and dmp for filtering mpu measurements
   mpu.dmpInitialize();
   mpu.setDMPEnabled(true);
   // int temp_readings = 0;
@@ -136,54 +149,46 @@ void setup(){
   //   }
   // }
   //delay(2000);
+  //Wire1 is used solely for communicating with the motor driver board on the 6WD vehicle
   Wire1.begin(1,5,100000);
-  scanI2C(Wire);
-  scanI2C(Wire1);
   WiFi.mode(WIFI_STA);
 
-  // Init ESP-NOW
+  // Initializing esp not
   if (esp_now_init() != ESP_OK) {
-    Serial.println("Error initializing ESP-NOW");
-    return;
+    Serial.println("Esp now initialization failed, restarting automatically...");
+    ESP.restart();
   }
 
+  //We register a callback function that runs when we sent a package
   esp_now_register_send_cb(OnDataSent);
   
-  // Register peer
+  //We register the other esp32 that resides inside the wireless controller using its MAC Address
   memcpy(peerInfo.peer_addr, slaveAddress, 6);
   peerInfo.channel = 0;  
   peerInfo.encrypt = false;
 
   if (esp_now_add_peer(&peerInfo) != ESP_OK){
-    Serial.println("Failed to add peer");
-    return;
+    Serial.println("Problem adding the controller as peer, restarting automatically...");
+    ESP.restart();
   }
   // Register for a callback function that will be called when data is received
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
-  pwm.begin();
-  pwm.setPWMFreq(50);
+  //we initialize the pca9685 module
+  pca.begin();
+  //the standard frequency for pwm motors is 50-60Hz
+  pca.setPWMFreq(50);
+
+
   while(waiting_response){
     Serial.println("Waiting for connection...");
     delay(100);
   }
+
+  //We don't know how long the esp32 has been waiting for a connection in the code above 
+  //so we use millis() to have the correct starting time for our timer variables
   heartbeat_timer = millis();
-  stabilization_time += millis();
-}
- 
-void scanI2C(TwoWire &wiretest) {
-  byte error, address;
-  Serial.println("Scanning I2C bus...");
-
-  for (address = 1; address < 127; address++) {
-    wiretest.beginTransmission(address);
-    error = wiretest.endTransmission();
-
-    if (error == 0) {
-      Serial.print("I2C device found at 0x");
-      Serial.println(address, HEX);
-    }
-  }
-  Serial.println("Failed");
+  stabilization_time = millis();
+  start_timer = millis();
 }
 
 void loop(){
@@ -214,14 +219,14 @@ void loop(){
       current_yaw = current_yaw - starting_yaw + 90;
       current_yaw += ((current_yaw < 0) * 360);
       ack_payload.carYaw = current_yaw;
-    current_yaw = int(current_yaw) % 360;
+      current_yaw = int(current_yaw) % 360;
     // Serial.print("YAW IS:");
     // Serial.println(current_yaw);
     // Serial.print("WITH STARTING YAW:");
     // Serial.println(starting_yaw);
     // Serial.println();
     }
-    esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&ack_payload, sizeof(ack_payload));
+  esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&ack_payload, sizeof(ack_payload));
     Serial.println("Sent ack payload");
     delay(100);
   }
