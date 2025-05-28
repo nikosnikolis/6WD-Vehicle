@@ -26,7 +26,7 @@ int forwardSpeed,turnSpeed;                          // forward speed = joystick
 byte lmbrake,rmbrake;                                // left and right motor brake (non zero value = brake)
 byte devibrate=50;                                   // time delay after impact to prevent false re-triggering due to chassis vibration
 int sensitivity=50;                                  // threshold of acceleration / deceleration required to register as an impact
-int lowbat=1320;                                      // adjust to suit your battery: 1320 = 13.20V
+int lowbat=1280;                                      // adjust to suit your battery: 1280 = 12.80V
 byte i2caddr=7;                                      // default I2C address of T'REX is 7. If this is changed, the T'REX will automatically store new address in EEPROM
 byte i2cfreq=0; 
 //TREX VARIABLES
@@ -45,6 +45,8 @@ struct acknowledgePayload{
   byte batteryVoltageLowByte;
   bool impactDetected;
   float carYaw;
+  int leftCurrent;
+  int rightCurrent;
 };
 
 struct controller_payload received_payload;
@@ -277,6 +279,7 @@ void MasterReceive()
   Serial.println("V");
   
   i=Wire1.read()*256+Wire1.read();
+  ack_payload.leftCurrent = i;
   Serial.print("Left  Motor Current:\t");
   Serial.print(i);Serial.println("mA");                           // T'REX left  motor current in mA
   
@@ -285,6 +288,7 @@ void MasterReceive()
   //Serial.println(i);                                              // T'REX left  motor encoder count
   
   i=Wire1.read()*256+Wire1.read();
+  ack_payload.rightCurrent = i;
   Serial.print("Right Motor Current:\t");
   Serial.print(i);Serial.println("mA");                           // T'REX right motor current in mA
   
