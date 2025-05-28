@@ -11,7 +11,7 @@
 uint8_t slaveAddress[] = {0x24,0xec,0x4a,0x20,0x7b,0x28};
 bool waiting_response = true;
 unsigned long heartbeat_timer = 0;
-bool last_status_connected = false;
+byte last_status_connected = 2; //0 is connected // 1 is menu // 2 is disconnected
 
 const int batteryVoltageTable[][3] = {{1680,100,ST77XX_GREEN},{1660,95,ST77XX_GREEN},{1644,90,ST77XX_GREEN},{1632,85,ST77XX_GREEN},{1608,80,ST77XX_GREEN},{1592,75,ST77XX_GREEN},
 {1580,70,ST77XX_GREEN},{1564,65,ST77XX_GREEN},{1548,60,ST77XX_GREEN},{1540,55,ST77XX_GREEN},{1520,50,ST77XX_GREEN},
@@ -29,6 +29,8 @@ struct receiver_payload{
   byte batteryVoltageLowByte;
   bool impactDetected;
   float carYaw;
+  int leftCurrent;
+  int rightCurrent;
 };
 
 struct receiver_payload rec_payload;
@@ -59,7 +61,8 @@ const int button_deload_time = 800;
 unsigned long time_elapsed = 0;
 int current_yaw_index = 0;
 int desired_angle = 0;
-int speed_modes[][2] = {{80,120},{100,150},{120,180},{140,250}};
+int speed_modes[] = {140,170,200,250};
+int increment_per_step[] = {20,17,12,8};
 
 //TFT VARIABLES
 const int TFT_CS = 18;
@@ -88,8 +91,8 @@ float ypr[3];
 
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  // Serial.print("\r\nLast Packet Send Status:\t");
+  // Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
 
@@ -99,12 +102,14 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   heartbeat_timer = millis();
   if(len == sizeof(bool)){
     waiting_response = false;
+    Serial.println("Received Heartbeat");
     return;
   }
-  if(!last_status_connected && !menuMode){
-    last_status_connected = true;
-    printDisplay();
-  }
+  // if(!last_status_connected && !menuMode){
+  //   last_status_connected = true;
+  //   Serial.println("Printing display");
+  //   printDisplay();
+  // }
   memcpy(&rec_payload, incomingData, len);
   //we add 45 degrees because the original value of looking forward is 0 degrees and the forward vector is +45 and -45 degrees from the starting yaw
   int new_car_yaw_index = rec_payload.carYaw - current_yaw + 45;
@@ -124,8 +129,16 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   }
   int battery_voltage = (rec_payload.batteryVoltageHighByte<<8) | rec_payload.batteryVoltageLowByte;
   //battery_voltage = 1480;
-  // Serial.print("Battery voltage threshold:");
-  // Serial.println(batteryVoltageTable[battery_index][0]);
+  Serial.print("Battery voltage:");
+  Serial.println(battery_voltage);
+  Serial.print("Left motor current mA:");
+  Serial.println(rec_payload.leftCurrent);
+  Serial.print("Right motor current mA:");
+  Serial.println(rec_payload.rightCurrent);
+  Serial.println();
+  if(abs(contr_payload.joystick[0]) > 60 || abs(contr_payload.joystick[1]) > 60){
+    return;
+  }
   if(batteryVoltageTable[battery_index][0] > battery_voltage){
     //Serial.print("Battery index:");
     do{
@@ -157,7 +170,7 @@ void printDisplay(){
   }
   display.setCursor(0,16);
   display.print("Speed Mode:");
-  display.print(menuText[7 - speed_mode_index]);
+  display.print(menuText[4 + speed_mode_index]);
   display.fillRect(80,60,62,62,ST77XX_BLACK);
   display.drawBitmap(80,60,arrow_bitmaps[current_yaw_index % 4],BITMAP_WIDTH,BITMAP_HEIGHT,ST77XX_WHITE);
 }
@@ -291,9 +304,9 @@ void setup(){
  
 void loop(){
   if(menuMode){
-    if(last_status_connected){
+    if(last_status_connected == 0){
       printMenu();
-      last_status_connected = !last_status_connected;
+      last_status_connected = 1;
       contr_payload.joystick[0] = 0;
       contr_payload.joystick[1] = 0;
       memset(contr_payload.buttons,0,sizeof(contr_payload.buttons)); 
@@ -358,20 +371,25 @@ void loop(){
       }
       else if(option_index == 8){
         menuMode = false;
+        last_status_connected = 1;
       }
     }
-    Serial.println(menuText[option_index]);
+    Serial.print("Speed Mode:");
+    Serial.println(menuText[4+speed_mode_index]);
+    Serial.print("Movement Mode:");
+    Serial.println(movement_mode);
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&contr_payload, sizeof(contr_payload));
     delay(100);
     return;
   }
 
   if(millis() - heartbeat_timer > 500){
+    Serial.println("No heartbeat");
     waiting_response = true;
   }
   if(waiting_response){
-    if(last_status_connected){
-      last_status_connected = false;
+    if(last_status_connected != 2){
+      last_status_connected = 2;
       display.fillScreen(ST77XX_BLACK);
       display.setCursor(0, 0);
       display.print("Disconnected...");
@@ -383,8 +401,9 @@ void loop(){
     delay(100);
   }
   else{
-    if(!last_status_connected){
-      last_status_connected = true;
+    if(last_status_connected != 0){
+      printDisplay();
+      last_status_connected = 0;
     }
     contr_payload.buttons[0] = digitalRead(button1);
     contr_payload.buttons[1] = digitalRead(button2);
@@ -402,6 +421,7 @@ void loop(){
     if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
       time_elapsed = millis();
       menuMode = !menuMode;
+      Serial.println("Activated Menu mode");
     }
     joystick_x_value = 1023-analogRead(joystick_x) - 512;
     joystick_y_value = analogRead(joystick_y) - 512;
@@ -441,11 +461,11 @@ void loop(){
     //we subtract the starting yaw from the current, to find the differential yaw Dyaw = yawFinal-yawStarting
     current_yaw = current_yaw - starting_yaw;
     current_yaw += ((current_yaw < 0) * 360);
-    Serial.print("Controller Yaw 0-360:");
-    Serial.println(current_yaw);
+    // Serial.print("Controller Yaw 0-360:");
+    // Serial.println(current_yaw);
 
-    Serial.print("Desired Angle 0 360:");
-    Serial.println(desired_angle);
+    // Serial.print("Desired Angle 0 360:");
+    // Serial.println(desired_angle);
     
     if(joystick_x_value !=0 || joystick_y_value != 0){
       if(movement_mode){
@@ -468,41 +488,88 @@ void TankControlMovement(int joystickX,int joystickY){
   int vector_length = (joystickX * joystickX) + (joystickY * joystickY);
   float movement_vector_length = sqrt(vector_length);
   float movement_vector_magnitude = constrain(movement_vector_length/512,0.4,1);
-  int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
-  if(abs(desired_angle) > 135 && movement_vector_magnitude > 0.5){
+  float threshold = 0.5;
+  int desired_angle = int(atan2((double)joystickY,(double)joystickX) * 180/M_PI); 
+  if(abs(desired_angle) > 135 && movement_vector_magnitude > threshold){
+    
+    int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
     //left side wheel speed
-    contr_payload.joystick[0] = -speed_modes[speed_mode_index][1];
-    //right side wheel speed
-    contr_payload.joystick[1] = speed_modes[speed_mode_index][1];
+    contr_payload.joystick[0] -= increment_per_step[speed_mode_index];
+    if(contr_payload.joystick[0] < -target_speed){
+      contr_payload.joystick[0] = -target_speed;
+    }
+    // //right side wheel speed
+    contr_payload.joystick[1] += increment_per_step[speed_mode_index];
+    if(contr_payload.joystick[1] > target_speed){
+      contr_payload.joystick[1] = target_speed;
+    }
       
     //debug
+    Serial.print("Target Speed:");
+    Serial.println(target_speed);
     Serial.print("Left motor Speed:");
     Serial.println(contr_payload.joystick[0]);
     Serial.print("Right motor Speed:");
     Serial.println(contr_payload.joystick[1]);
   }
-  else if(abs(desired_angle) < 45 && movement_vector_magnitude > 0.5){
+  else if(abs(desired_angle) < 45 && movement_vector_magnitude > threshold){
+
+    int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
     //left side wheel speed
-    contr_payload.joystick[0] = speed_modes[speed_mode_index][1];
-    //right side wheel speed
-    contr_payload.joystick[1] = -speed_modes[speed_mode_index][1];
+    contr_payload.joystick[0] += increment_per_step[speed_mode_index];
+    if(contr_payload.joystick[0] > target_speed){
+      contr_payload.joystick[0] = target_speed;
+    }
+    // //right side wheel speed
+    contr_payload.joystick[1] -= increment_per_step[speed_mode_index];
+    if(contr_payload.joystick[1] < -target_speed){
+      contr_payload.joystick[1] = -target_speed;
+    }
       
     //debug
+    Serial.print("Target Speed:");
+    Serial.println(target_speed);
     Serial.print("Left motor Speed:");
     Serial.println(contr_payload.joystick[0]);
     Serial.print("Right motor Speed:");
     Serial.println(contr_payload.joystick[1]);
   }
   else{
-    //left side wheel speed
-    contr_payload.joystick[0] = ((desired_angle > 0) - (desired_angle < 0)) * movement_vector_magnitude * speed_modes[speed_mode_index][1];
-    //right side wheel speed
-    contr_payload.joystick[1] = ((desired_angle > 0) - (desired_angle < 0)) * movement_vector_magnitude * speed_modes[speed_mode_index][1];
+    int target_speed = speed_modes[speed_mode_index]* movement_vector_magnitude;
+    if(desired_angle > 0){
+      //left side wheel speed
+      contr_payload.joystick[0] += increment_per_step[speed_mode_index];
+      //right side wheel speed
+      contr_payload.joystick[1] += increment_per_step[speed_mode_index];
+      if(contr_payload.joystick[0] > target_speed){
+        contr_payload.joystick[0] = target_speed;
+        contr_payload.joystick[1] = target_speed;
+      }
+    }
+    else{
+      //left side wheel speed
+      contr_payload.joystick[0] -= increment_per_step[speed_mode_index];
+      //right side wheel speed
+      contr_payload.joystick[1] -= increment_per_step[speed_mode_index];
+      if(contr_payload.joystick[0] < -target_speed){
+        contr_payload.joystick[0] = -target_speed;
+        contr_payload.joystick[1] = -target_speed;
+      }
+    }
+    
+    
+    Serial.print("Target Speed:");
+    Serial.println(target_speed);
+    Serial.print("Left motor Speed:");
+    Serial.println(contr_payload.joystick[0]);
+    Serial.print("Right motor Speed:");
+    Serial.println(contr_payload.joystick[1]);
   }
 }
 
 void WorldPosMovement(int joystickX,int joystickY){
   int desired_angle = int(atan2((double)joystickY,(double)joystickX)* 180/M_PI); 
+  desired_angle += (desired_angle < 0) * 360;
   int vector_length = (joystickX * joystickX) + (joystickY * joystickY);
   float movement_vector_length = sqrt(vector_length);
   // Serial.print("SQRT:");
@@ -512,52 +579,78 @@ void WorldPosMovement(int joystickX,int joystickY){
   // Serial.println(movement_vector_magnitude);
   Serial.print("ANGLE:");
   Serial.println((desired_angle + int(current_yaw))%360);
+  Serial.print("CAR YAW:");
+  Serial.println(rec_payload.carYaw);
   int angle = int(rec_payload.carYaw - (desired_angle + current_yaw));
+  Serial.print("ANGLE BEFORE TRANSFORM:");
+  angle = angle%360;
+  Serial.println(angle);
   if(angle > 180){angle -= 360;}
   if(angle < -180){angle += 360;}
   Serial.print("ANGLE DIF:");
   Serial.println(angle);
-  if(abs(angle) > 15){
-    //0 indicates counter clock wise rotation and 1 indicates clockwise direction
-    //this expression takes the difference between the two angles(we add 360 to wrap around if needed and mod with 360),
-    //if the difference is less that 180 then go counter clock wise
-    bool rotate_direction = (angle < 0);
-    Serial.print("Turn direction:");
-    Serial.println(rotate_direction); 
-    float temp_rotation_speed = abs(angle)/180.0;
-    Serial.print("TEMP Rotation Speed:");
-    Serial.println(temp_rotation_speed);
-    float rotation_speed = constrain(temp_rotation_speed,0.6,1);
-    Serial.print("Rotation Speed:");
-    Serial.println(rotation_speed);
-    if(rotate_direction){
-      Serial.println("COUNTER CLOCKWISE");
-      //left side wheel speed
-      contr_payload.joystick[0] = movement_vector_magnitude * speed_modes[speed_mode_index][1];
-      //we map to 80 because low values do not rotate the wheels at all (perhaps due to low voltage?)
-      contr_payload.joystick[0] = -map(contr_payload.joystick[0] * rotation_speed,0,speed_modes[speed_mode_index][1],speed_modes[speed_mode_index][0],speed_modes[speed_mode_index][1]);
-      
-      //right side wheel speed
-      contr_payload.joystick[1] = movement_vector_magnitude * speed_modes[speed_mode_index][1];
-      contr_payload.joystick[1] = map(contr_payload.joystick[1],0,speed_modes[speed_mode_index][1],speed_modes[speed_mode_index][0],speed_modes[speed_mode_index][1]);
+  int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
+  if(movement_vector_magnitude > 0.5){
+    if(abs(angle) > 10){
+      //0 indicates counter clock wise rotation and 1 indicates clockwise direction
+      //this expression takes the difference between the two angles(we add 360 to wrap around if needed and mod with 360),
+      //if the difference is less that 180 then go counter clock wise
+      bool rotate_direction = (angle < 0);
+      Serial.print("Turn direction:");
+      Serial.println(rotate_direction); 
+      float temp_rotation_speed = abs(angle)/180.0;
+      Serial.print("TEMP Rotation Speed:");
+      Serial.println(temp_rotation_speed);
+      float rotation_speed = constrain(temp_rotation_speed,0.6,1);
+      Serial.print("Rotation Speed:");
+      Serial.println(rotation_speed);
+      if(rotate_direction){
 
-      
-      //debug
-      Serial.print("Left motor Speed:");
-      Serial.println(contr_payload.joystick[0]);
-      Serial.print("Right motor Speed:");
-      Serial.println(contr_payload.joystick[1]);
+        Serial.println("COUNTER CLOCKWISE");
+        //left side wheel speed
+        contr_payload.joystick[0] -= increment_per_step[speed_mode_index];
+        if(contr_payload.joystick[0] < -target_speed){
+          contr_payload.joystick[0] = -target_speed;
+        }
+        //right side wheel speed
+        contr_payload.joystick[1] += increment_per_step[speed_mode_index];
+        if(contr_payload.joystick[1] > target_speed){
+          contr_payload.joystick[1] = target_speed;
+        }
+
+        //debug
+        Serial.print("Left motor Speed:");
+        Serial.println(contr_payload.joystick[0]);
+        Serial.print("Right motor Speed:");
+        Serial.println(contr_payload.joystick[1]);
+      }
+      else{
+        Serial.println("CLOCKWISE");
+        contr_payload.joystick[0] += increment_per_step[speed_mode_index];
+        if(contr_payload.joystick[0] > target_speed){
+          contr_payload.joystick[0] = target_speed;
+        }
+        //right side wheel speed
+        contr_payload.joystick[1] -= increment_per_step[speed_mode_index];
+        if(contr_payload.joystick[1] < -target_speed){
+          contr_payload.joystick[1] = -target_speed;
+        }
+        //debug
+        Serial.print("Left motor Speed:");
+        Serial.println(contr_payload.joystick[0]);
+        Serial.print("Right motor Speed:");
+        Serial.println(contr_payload.joystick[1]);
+      }
     }
     else{
-      Serial.println("CLOCKWISE");
-      //left side wheel speed
-      contr_payload.joystick[0] = movement_vector_magnitude * speed_modes[speed_mode_index][1];
-      contr_payload.joystick[0] = map(contr_payload.joystick[0],0,speed_modes[speed_mode_index][1],speed_modes[speed_mode_index][0],speed_modes[speed_mode_index][1]);
-
-      //right side wheel speed
-      contr_payload.joystick[1] = movement_vector_magnitude * speed_modes[speed_mode_index][1];
-      //we map to 80 because low values do not rotate the wheels at all (perhaps due to low voltage?)
-      contr_payload.joystick[1] = -map(contr_payload.joystick[1] * rotation_speed,0,speed_modes[speed_mode_index][1],speed_modes[speed_mode_index][0],speed_modes[speed_mode_index][1]);
+        //left side wheel speed
+        contr_payload.joystick[0] += increment_per_step[speed_mode_index];
+        //right side wheel speed
+        contr_payload.joystick[1] += increment_per_step[speed_mode_index];
+        if(contr_payload.joystick[0] > target_speed){
+          contr_payload.joystick[0] = target_speed;
+          contr_payload.joystick[1] = target_speed;
+        }
       
       //debug
       Serial.print("Left motor Speed:");
@@ -565,19 +658,5 @@ void WorldPosMovement(int joystickX,int joystickY){
       Serial.print("Right motor Speed:");
       Serial.println(contr_payload.joystick[1]);
     }
-  }
-  else{
-    contr_payload.joystick[0] = movement_vector_magnitude * speed_modes[speed_mode_index][1];
-    contr_payload.joystick[0] = map(contr_payload.joystick[0],0,speed_modes[speed_mode_index][1],speed_modes[speed_mode_index][0],speed_modes[speed_mode_index][1]);
-
-    contr_payload.joystick[1] = movement_vector_magnitude * speed_modes[speed_mode_index][1];
-    contr_payload.joystick[1] = map(contr_payload.joystick[1],0,speed_modes[speed_mode_index][1],speed_modes[speed_mode_index][0],speed_modes[speed_mode_index][1]);
-
-    
-    //debug
-    Serial.print("Left motor Speed:");
-    Serial.println(contr_payload.joystick[0]);
-    Serial.print("Right motor Speed:");
-    Serial.println(contr_payload.joystick[1]);
   }
 }
