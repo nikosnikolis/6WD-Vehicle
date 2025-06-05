@@ -7,6 +7,9 @@
 #include <Wire.h>
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h"
+#include "esp_task_wdt.h"
+
+#define WDT_TIMEOUT 5
 
 uint8_t slaveAddress[] = {0x24,0xec,0x4a,0x20,0x7b,0x28};
 bool waiting_response = true;
@@ -300,6 +303,9 @@ void setup(){
   stabilization_time = millis();
   start_timer = millis();
   heartbeat_timer = millis();
+  esp_task_wdt_config_t wdt_config = {.timeout_ms = WDT_TIMEOUT * 1000, .idle_core_mask = (1 << portNUM_PROCESSORS) - 1, .trigger_panic = true};
+  esp_task_wdt_init(&wdt_config);
+  esp_task_wdt_add(NULL);
 }
  
 void loop(){
@@ -379,6 +385,7 @@ void loop(){
     Serial.print("Movement Mode:");
     Serial.println(movement_mode);
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&contr_payload, sizeof(contr_payload));
+    esp_task_wdt_reset();
     delay(100);
     return;
   }
@@ -398,6 +405,7 @@ void loop(){
       Serial.println("DISCONNECTED?");
     }
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&waiting_response, sizeof(waiting_response));
+    esp_task_wdt_reset();
     delay(100);
   }
   else{
@@ -480,6 +488,7 @@ void loop(){
       contr_payload.joystick[1] = joystick_y_value;
     }
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&contr_payload, sizeof(contr_payload));
+    esp_task_wdt_reset();
     delay(100);
     }
 }
