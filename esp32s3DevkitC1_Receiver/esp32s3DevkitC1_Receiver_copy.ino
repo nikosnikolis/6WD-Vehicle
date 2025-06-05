@@ -72,10 +72,40 @@ VectorFloat gravity;
 float ypr[3];
 //car mpu variables
 
+double angleToPwm(double angle){
+  Serial.print("Turning Angle:");
+  Serial.println(angle);
+  return map(angle,0,180,SERVOMIN,SERVOMAX);
+}
 //pca9685 + motor variables
 Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver();
-int servo_pwm[6] = {SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN};
+int servo_pwm[6] = {angleToPwm(90),angleToPwm(90), SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN};
+double x = 15, y = 0, z = 15;
+
 //pca9685 + motor variables
+
+
+void calculateInverseKinematics(double x, double y, double z){
+  Serial.print("X is:");
+  Serial.println(x);
+  Serial.print("Y is:");
+  Serial.println(y);
+  Serial.print("Z is:");
+  Serial.println(z);
+  double b = atan2(y,x) * 180 / M_PI;
+  double l = sqrt(sq(x) + sq(y));
+  double h = sqrt(sq(l) + sq(z));
+  double phi = atan(z/l) * 180 / M_PI;
+  double theta = acos((h/2)/75) * (180 / M_PI);
+  double a1 = phi + theta;
+  double a2 = 90 + phi - theta;
+  b = angleToPwm(b + 90);
+  a1 = angleToPwm(a1);
+  a2 = angleToPwm(a2);
+  pca.setPWM(0,0,b);
+  pca.setPWM(1,0,a1);
+  pca.setPWM(2,0,a2);
+}
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   Serial.print("\r\nLast Packet Send Status:\t");
@@ -97,13 +127,31 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     return;
   }
   memcpy(&received_payload, incomingData, sizeof(received_payload));
-  int i;
-  for(i=0; i<12; i+=2){
-    servo_pwm[i/2] = servo_pwm[i/2] + (SERVOSTEP*received_payload.buttons[i]) - (SERVOSTEP*received_payload.buttons[i+1]); 
-    servo_pwm[i/2] = constrain(servo_pwm[i/2],SERVOMIN,SERVOMAX);
-    pca.setPWM(i/2,0,servo_pwm[i/2]);
-  }
-  
+  y += received_payload.buttons[1] - received_payload.buttons[0]; 
+  // servo_pwm[0] = servo_pwm[0] + (SERVOSTEP*received_payload.buttons[0]) - (SERVOSTEP*received_payload.buttons[1]); 
+  // servo_pwm[0] = constrain(servo_pwm[0],SERVOMIN,SERVOMAX);
+  // pca.setPWM(0,0,servo_pwm[0]);
+  // double angle = map(servo_pwm[0],SERVOMIN,SERVOMAX,0,180) * M_PI / 180;
+  // Serial.print("angle:");
+  // Serial.println(angle);
+  // x = x * cos(angle) - y * sin(angle);
+  // y = x * sin(angle) + y * cos(angle);
+  // y = constrain(x,-30,30);
+  x += received_payload.buttons[3] - received_payload.buttons[2]; 
+  // x = constrain(y,0,30);
+  z += received_payload.buttons[5] - received_payload.buttons[4]; 
+  calculateInverseKinematics(x,y,z);
+  // servo_pwm[3] = servo_pwm[3] + (SERVOSTEP*received_payload.buttons[6]) - (SERVOSTEP*received_payload.buttons[7]); 
+  // servo_pwm[3] = constrain(servo_pwm[3],SERVOMIN,SERVOMAX);
+  // pca.setPWM(3,0,servo_pwm[3]);
+
+  // servo_pwm[4] = servo_pwm[4] + (SERVOSTEP*received_payload.buttons[8]) - (SERVOSTEP*received_payload.buttons[9]); 
+  // servo_pwm[4] = constrain(servo_pwm[4],SERVOMIN,SERVOMAX);
+  // pca.setPWM(4,0,servo_pwm[4]);
+
+  // servo_pwm[5] = servo_pwm[5] + (SERVOSTEP*received_payload.buttons[10]) - (SERVOSTEP*received_payload.buttons[11]); 
+  // servo_pwm[5] = constrain(servo_pwm[5],SERVOMIN,SERVOMAX);
+  // pca.setPWM(5,0,servo_pwm[5]);
 }
 
 void setup(){
