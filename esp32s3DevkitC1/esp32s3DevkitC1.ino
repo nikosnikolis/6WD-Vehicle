@@ -270,8 +270,9 @@ void setup(){
     display.setCursor(0, 0);
     display.print("Error Initializing");
     display.setCursor(0,16);
-    display.print("Restart The Device");
-    while(1);
+    display.print("Restarting The Device");
+    delay(1500);
+    ESP.restart();
   }
   //registering the callback function when sending data
   esp_now_register_send_cb(OnDataSent);
@@ -287,9 +288,9 @@ void setup(){
     display.setCursor(0, 0);
     display.print("Failed to add peer");
     display.setCursor(0, 8);
-    display.print("Restart The Device");
-    while(1);
-    
+    display.print("Restarting The Device");
+    delay(1500);
+    ESP.restart();
   }
   //registering a callback function for when data is received
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
