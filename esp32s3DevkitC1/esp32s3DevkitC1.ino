@@ -237,6 +237,7 @@ void setup(){
     }
   else{
     Serial.println("Mpu connection failed restarting automatically...");
+    delay(1500);
     ESP.restart();
   }
   mpu.dmpInitialize();
