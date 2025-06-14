@@ -109,6 +109,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   //Αναγνώριση του πακέτου σύνδεσης του ESP32 S3 του τροχοφόρου οχήματος
   if(len == sizeof(bool)){
     //Ενημέρωση της κατάστασης της επικοινωνίας
+    waiting_response = false;
     Serial.println("Received Heartbeat");
     return;
   }
@@ -450,10 +451,10 @@ void loop(){
     if(abs(joystick_y_value) <= 70){
         joystick_y_value = 0;
       }
-    Serial.print("X joystick:");
-    Serial.println(joystick_x_value);
-    Serial.print("Y joystick:");
-    Serial.println(joystick_y_value);
+    // Serial.print("X joystick:");
+    // Serial.println(joystick_x_value);
+    // Serial.print("Y joystick:");
+    // Serial.println(joystick_y_value);
     if(mpu.dmpGetCurrentFIFOPacket(buffer)){
       mpu.dmpGetQuaternion(&quaternion, buffer);
       mpu.dmpGetGravity(&gravity, &quaternion);
