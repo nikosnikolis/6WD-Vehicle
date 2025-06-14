@@ -76,15 +76,20 @@ VectorFloat gravity;
 float ypr[3];
 //car mpu variables
 
-double angleToPwm(double angle){
+double angleToPwm(double angle,double min, double max){
   Serial.print("Turning Angle:");
   Serial.println(angle);
-  return map(angle,0,180,SERVOMIN,SERVOMAX);
+  return map(angle,0,180,min,max);
 }
 //pca9685 + motor variables
 Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver();
-int servo_pwm[6] = {angleToPwm(90),angleToPwm(90), SERVOMIN, SERVOMIN, SERVOMIN, SERVOMIN};
-double x = 15, y = 0, z = 15;
+int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
+{120,480,angleToPwm(90,120,480)},
+{SERVOMIN,510,SERVOMIN},
+{SERVOMIN,SERVOMAX,SERVOMIN},
+{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
+{SERVOMIN,450,SERVOMIN}};
+double x = 0.5, y = 14.5, z = 15;
 
 //pca9685 + motor variables
 
@@ -96,19 +101,40 @@ void calculateInverseKinematics(double x, double y, double z){
   Serial.println(y);
   Serial.print("Z is:");
   Serial.println(z);
-  double b = atan2(y,x) * 180 / M_PI;
-  double l = sqrt(sq(x) + sq(y));
-  double h = sqrt(sq(l) + sq(z));
-  double phi = atan(z/l) * 180 / M_PI;
-  double theta = acos((h/2)/75) * (180 / M_PI);
-  double a1 = phi + theta;
-  double a2 = 90 + phi - theta;
-  b = angleToPwm(b + 90);
-  a1 = angleToPwm(a1);
-  a2 = angleToPwm(a2);
-  pca.setPWM(0,0,b);
-  pca.setPWM(1,0,a1);
-  pca.setPWM(2,0,a2);
+  double theta1 = atan2(y,x);
+  // double l = sqrt(sq(x) + sq(y));
+  // double h = sqrt(sq(l) + sq(z));
+  // double phi = atan(z/l) * 180 / M_PI;
+  // double theta = acos((h/2)/75) * (180 / M_PI);
+  // double a1 = phi + theta;
+  // double a2 = 90 + phi - theta;
+  //b = angleToPwm(b + 90);
+  double ex = x/cos(theta1);
+  double ez = z-10;
+  Serial.print("EX is:");
+  Serial.println(ex);
+  Serial.print("EZ is:");
+  Serial.println(ez);
+  double inner = (sq(ex) + sq(ez) - 450)/450;
+  Serial.print("INNER:");
+  Serial.println(inner);
+  double theta3 = acos(inner);
+  double inner2 = atan(ez/ex);
+  double inner3 =  (15 * sin(theta3)) / (15 + 15*cos(theta3));
+  Serial.print("INNER2:");
+  Serial.println(inner2);
+  Serial.print("INNER3:");
+  Serial.println(inner3);
+  double theta2 = (inner2 - atan(inner3))  * 180 / M_PI;
+  theta3 = theta3  * 180 / M_PI;
+  theta3 = constrain(theta3 , 0, 180);
+  theta2 = constrain(theta2 , 0, 180);
+  Serial.print("THETA 2:");
+  Serial.println(theta2);
+  Serial.print("THETA 3:");
+  Serial.println(theta3);
+  pca.setPWM(1,0,angleToPwm(theta2,servo_pwm[1][0],servo_pwm[1][1]));
+  pca.setPWM(2,0,angleToPwm(theta3,servo_pwm[2][0],servo_pwm[2][1]));
 }
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -118,25 +144,65 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   heartbeat_timer = millis();
   if(len == sizeof(bool)){
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&waiting_response, sizeof(bool));
+    waiting_response = false;
     Serial.print("Pinged, sent response");
     return;
   }
   memcpy(&received_payload, incomingData, sizeof(received_payload));
-  y += received_payload.buttons[1] - received_payload.buttons[0]; 
-  x += received_payload.buttons[3] - received_payload.buttons[2]; 
-  z += received_payload.buttons[5] - received_payload.buttons[4]; 
+  double new_base_rot = 10*(received_payload.buttons[1] - received_payload.buttons[0]); 
+  //double base_angle = map(servo_pwm[0][2], servo_pwm[0][0], servo_pwm[0][1], 0, 180) * M_PI/180;
+  
+  if(new_base_rot != 0){
+    double old_base_rot = map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180);
+    // Serial.print("old is:");
+    // Serial.println(old_base_rot);
+    // Serial.print("new is:");
+    servo_pwm[0][2] = constrain(servo_pwm[0][2]+new_base_rot,servo_pwm[0][0],servo_pwm[0][1]);
+    new_base_rot = map(servo_pwm[0][2],SERVOMIN,SERVOMAX,0,180);
+    // Serial.println(new_base_rot);
+    pca.setPWM(0,0,servo_pwm[0][2]); 
+    double base_angle = (new_base_rot - old_base_rot) * M_PI/180;
+    // Serial.print("Base Angle:");
+    // Serial.println(base_angle);
+    double temp_x = x;
+    x = x * cos(base_angle) - y * sin(base_angle);
+    y = temp_x * sin(base_angle) + y * cos(base_angle);
+    
+  }
+  int scale = received_payload.buttons[3] - received_payload.buttons[2];
+  Serial.print("Scale:");
+  Serial.println(scale);
+    int old_rad = sqrt(sq(x) + sq(y) + sq(z)) + 0.5*scale;
+    Serial.print("RADIUS:");
+    Serial.println(old_rad);
+  if(scale != 0){
+    if(old_rad <= 30 && old_rad >= 15){
+      x = old_rad * cos(map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180);
+      y = old_rad * sin(map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180);
+      Serial.print("NEW X is:");
+      Serial.println(x);
+      Serial.print("NEW Y is:");
+      Serial.println(y);
+    }
+  }
+  // Serial.print("AFTER SCALE X is:");
+  // Serial.println(x);
+  // Serial.print("AFTER SCALE Y is:");
+  // Serial.println(y);
+  // z += received_payload.buttons[5] - received_payload.buttons[4]; 
+  // z = constrain(z,-20,30);
   calculateInverseKinematics(x,y,z);
-  servo_pwm[3] = servo_pwm[3] + (SERVOSTEP*received_payload.buttons[6]) - (SERVOSTEP*received_payload.buttons[7]); 
-  servo_pwm[3] = constrain(servo_pwm[3],SERVOMIN,SERVOMAX);
-  pca.setPWM(3,0,servo_pwm[3]);
+  // servo_pwm[3] = servo_pwm[3] + (SERVOSTEP*received_payload.buttons[6]) - (SERVOSTEP*received_payload.buttons[7]); 
+  // servo_pwm[3] = constrain(servo_pwm[3],SERVOMIN,SERVOMAX);
+  // pca.setPWM(3,0,servo_pwm[3]);
 
-  servo_pwm[4] = servo_pwm[4] + (SERVOSTEP*received_payload.buttons[8]) - (SERVOSTEP*received_payload.buttons[9]); 
-  servo_pwm[4] = constrain(servo_pwm[4],SERVOMIN,SERVOMAX);
-  pca.setPWM(4,0,servo_pwm[4]);
+  // servo_pwm[4] = servo_pwm[4] + (SERVOSTEP*received_payload.buttons[8]) - (SERVOSTEP*received_payload.buttons[9]); 
+  // servo_pwm[4] = constrain(servo_pwm[4],SERVOMIN,SERVOMAX);
+  // pca.setPWM(4,0,servo_pwm[4]);
 
-  servo_pwm[5] = servo_pwm[5] + (SERVOSTEP*received_payload.buttons[10]) - (SERVOSTEP*received_payload.buttons[11]); 
-  servo_pwm[5] = constrain(servo_pwm[5],SERVOMIN,SERVOMAX);
-  pca.setPWM(5,0,servo_pwm[5]);
+  // servo_pwm[5] = servo_pwm[5] + (SERVOSTEP*received_payload.buttons[10]) - (SERVOSTEP*received_payload.buttons[11]); 
+  // servo_pwm[5] = constrain(servo_pwm[5],SERVOMIN,SERVOMAX);
+  // pca.setPWM(5,0,servo_pwm[5]);
 }
 
 void setup(){
@@ -151,6 +217,44 @@ void setup(){
   rgb.setPixelColor(0, rgb.Color(0, 0, 255)); //μπλε χρώμα
   rgb.show();
   delay(1000);
+  esp_reset_reason_t reason = esp_reset_reason();
+
+  Serial.println("ESP32-S3 Restart Reason:");
+  switch (reason) {
+    case ESP_RST_POWERON:
+      Serial.println("Power-on reset");
+      break;
+    case ESP_RST_EXT:
+      Serial.println("External pin reset");
+      break;
+    case ESP_RST_SW:
+      Serial.println("Software reset via esp_restart()");
+      break;
+    case ESP_RST_PANIC:
+      Serial.println("Software crash / panic reset");
+      break;
+    case ESP_RST_INT_WDT:
+      Serial.println("Reset due to interrupt watchdog");
+      break;
+    case ESP_RST_TASK_WDT:
+      Serial.println("Reset due to task watchdog");
+      break;
+    case ESP_RST_WDT:
+      Serial.println("Other watchdog reset");
+      break;
+    case ESP_RST_DEEPSLEEP:
+      Serial.println("Woke from deep sleep");
+      break;
+    case ESP_RST_BROWNOUT:
+      Serial.println("Brownout reset (low power)");
+      break;
+    case ESP_RST_SDIO:
+      Serial.println("Reset over SDIO");
+      break;
+    default:
+      Serial.println("Unknown reset reason");
+      break;
+  }
   //Στο κανάλι επικοινωνίας συνδέουμε το MPU6050 και το PCA9685
   Wire.begin(10,9);
   if(mpu.testConnection()) {
@@ -189,7 +293,9 @@ void setup(){
   //Αρχικοποίηση του PCA9685
   pca.begin();
   pca.setPWMFreq(50);
-
+  pca.setPWM(0,0,servo_pwm[0][2]);
+  pca.setPWM(1,0,servo_pwm[1][2]);
+  pca.setPWM(2,0,servo_pwm[2][2]);
 
   while(waiting_response){
     Serial.println("Waiting for connection...");
@@ -210,7 +316,7 @@ void loop(){
     rgb.show();
     Serial.println("Disconnected, waiting ping...");
     //Ενεργοποιούμε τα φρένα του οχήματος ώστε να μείνει στάσιμο μέχρι την αποκατάσταση της σύνδεσης
-    MasterSend(startbyte,1,225,1,225,1,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
+    //MasterSend(startbyte,1,225,1,225,1,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
     esp_task_wdt_reset();
     delay(100);
   }
@@ -222,8 +328,8 @@ void loop(){
       mpu.dmpGetGravity(&gravity, &quaternion);
       mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
       current_yaw = -ypr[0] * 180/ M_PI;
-      Serial.print("YAW solo IS:");
-      Serial.println(current_yaw);
+      // Serial.print("YAW solo IS:");
+      // Serial.println(current_yaw);
       if(millis() - start_timer < stabilization_time){
         starting_yaw += 0.95 * (current_yaw - prev_yaw);
         prev_yaw = current_yaw;
@@ -233,9 +339,9 @@ void loop(){
       ack_payload.carYaw = current_yaw;
       current_yaw = int(current_yaw) % 360;
     }
-    MasterSend(startbyte,2,received_payload.joystick[0],lmbrake,received_payload.joystick[1],rmbrake,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
+    //MasterSend(startbyte,2,received_payload.joystick[0],lmbrake,received_payload.joystick[1],rmbrake,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
     delay(50);
-    MasterReceive();
+    //MasterReceive();
     delay(50);
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&ack_payload, sizeof(ack_payload));
     esp_task_wdt_reset();
