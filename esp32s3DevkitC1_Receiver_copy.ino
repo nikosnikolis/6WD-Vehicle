@@ -89,19 +89,18 @@ int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
 {SERVOMIN,SERVOMAX,SERVOMIN},
 {SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
 {SERVOMIN,450,SERVOMIN}};
-double x = 0.5, y = 14.5, z = 15;
+double x, y , z ;
 
 //pca9685 + motor variables
 
 
 void calculateInverseKinematics(double x, double y, double z){
-  Serial.print("X is:");
-  Serial.println(x);
-  Serial.print("Y is:");
-  Serial.println(y);
-  Serial.print("Z is:");
-  Serial.println(z);
-  double theta1 = atan2(y,x);
+  // Serial.print("X is:");
+  // Serial.println(x);
+  // Serial.print("Y is:");
+  // Serial.println(y);
+  // Serial.print("Z is:");
+  // Serial.println(z);
   // double l = sqrt(sq(x) + sq(y));
   // double h = sqrt(sq(l) + sq(z));
   // double phi = atan(z/l) * 180 / M_PI;
@@ -109,32 +108,37 @@ void calculateInverseKinematics(double x, double y, double z){
   // double a1 = phi + theta;
   // double a2 = 90 + phi - theta;
   //b = angleToPwm(b + 90);
-  double ex = x/cos(theta1);
-  double ez = z-10;
-  Serial.print("EX is:");
-  Serial.println(ex);
-  Serial.print("EZ is:");
-  Serial.println(ez);
-  double inner = (sq(ex) + sq(ez) - 450)/450;
-  Serial.print("INNER:");
-  Serial.println(inner);
-  double theta3 = acos(inner);
-  double inner2 = atan(ez/ex);
-  double inner3 =  (15 * sin(theta3)) / (15 + 15*cos(theta3));
-  Serial.print("INNER2:");
-  Serial.println(inner2);
-  Serial.print("INNER3:");
-  Serial.println(inner3);
-  double theta2 = (inner2 - atan(inner3))  * 180 / M_PI;
-  theta3 = theta3  * 180 / M_PI;
-  theta3 = constrain(theta3 , 0, 180);
-  theta2 = constrain(theta2 , 0, 180);
+  double theta1 = atan2(y,x) * 180 / M_PI;
+  double r = sqrt(sq(x) + sq(y));
+  double s = z-10;
+  Serial.print("r is:");
+  Serial.println(r);
+  Serial.print("s is:");
+  Serial.println(s);
+  double theta3 = -acos( (sq(r) + sq(s) - sq(15) - sq(15))/(2 * 15 * 15) );
+  Serial.print("theta3:");
+  Serial.println(theta3 * 180 / M_PI);
+  double inner1 = (15 + 15*cos(theta3)) * s;
+  double inner2 = 15 * r * sin(theta3);
+  double theta2 = asin((inner1 - inner2)/(sq(r) + sq(s)));
   Serial.print("THETA 2:");
-  Serial.println(theta2);
-  Serial.print("THETA 3:");
-  Serial.println(theta3);
-  pca.setPWM(1,0,angleToPwm(theta2,servo_pwm[1][0],servo_pwm[1][1]));
-  pca.setPWM(2,0,angleToPwm(theta3,servo_pwm[2][0],servo_pwm[2][1]));
+  Serial.println(theta2 * 180 / M_PI);
+  // theta3 = constrain(theta3 , -90,90);
+  // theta2 = constrain(theta2 , 0, 180);
+  // pca.setPWM(1,0,angleToPwm(theta2,servo_pwm[1][0],servo_pwm[1][1]));
+  // pca.setPWM(2,0,map(theta3,-90,90,servo_pwm[2][0],servo_pwm[2][1]));
+  theta1 = theta1 * M_PI /180;
+  // theta2 = theta2 * M_PI / 180;
+  // theta3 = theta3 * M_PI / 180;
+  x = (15*cos(theta2) + 15 * cos(theta2+theta3))*cos(theta1);
+  y = (15*cos(theta2) + 15 * cos(theta2+theta3))*sin(theta1);
+  z = 10 + 15*sin(theta2) + 15*sin(theta2+theta3);
+  Serial.print("X is:");
+  Serial.println(x);
+  Serial.print("Y is:");
+  Serial.println(y);
+  Serial.print("Z is:");
+  Serial.println(z);
 }
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -172,13 +176,17 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   int scale = received_payload.buttons[3] - received_payload.buttons[2];
   Serial.print("Scale:");
   Serial.println(scale);
-    int old_rad = sqrt(sq(x) + sq(y) + sq(z)) + 0.5*scale;
+  if(scale != 0){
+    int max_rad = sqrt(900 - sq(z));
+    int old_rad = sqrt(sq(x) + sq(y)) + 0.5*scale;
     Serial.print("RADIUS:");
     Serial.println(old_rad);
-  if(scale != 0){
-    if(old_rad <= 30 && old_rad >= 15){
-      x = old_rad * cos(map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180);
-      y = old_rad * sin(map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180);
+    Serial.print("MAX RADIUS:");
+    Serial.println(max_rad);
+    if(old_rad <= max_rad  && old_rad >= 15){
+      double angle = map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180;
+      x = old_rad * cos(angle);
+      y = old_rad * sin(angle);
       Serial.print("NEW X is:");
       Serial.println(x);
       Serial.print("NEW Y is:");
@@ -217,44 +225,6 @@ void setup(){
   rgb.setPixelColor(0, rgb.Color(0, 0, 255)); //μπλε χρώμα
   rgb.show();
   delay(1000);
-  esp_reset_reason_t reason = esp_reset_reason();
-
-  Serial.println("ESP32-S3 Restart Reason:");
-  switch (reason) {
-    case ESP_RST_POWERON:
-      Serial.println("Power-on reset");
-      break;
-    case ESP_RST_EXT:
-      Serial.println("External pin reset");
-      break;
-    case ESP_RST_SW:
-      Serial.println("Software reset via esp_restart()");
-      break;
-    case ESP_RST_PANIC:
-      Serial.println("Software crash / panic reset");
-      break;
-    case ESP_RST_INT_WDT:
-      Serial.println("Reset due to interrupt watchdog");
-      break;
-    case ESP_RST_TASK_WDT:
-      Serial.println("Reset due to task watchdog");
-      break;
-    case ESP_RST_WDT:
-      Serial.println("Other watchdog reset");
-      break;
-    case ESP_RST_DEEPSLEEP:
-      Serial.println("Woke from deep sleep");
-      break;
-    case ESP_RST_BROWNOUT:
-      Serial.println("Brownout reset (low power)");
-      break;
-    case ESP_RST_SDIO:
-      Serial.println("Reset over SDIO");
-      break;
-    default:
-      Serial.println("Unknown reset reason");
-      break;
-  }
   //Στο κανάλι επικοινωνίας συνδέουμε το MPU6050 και το PCA9685
   Wire.begin(10,9);
   if(mpu.testConnection()) {
@@ -296,6 +266,24 @@ void setup(){
   pca.setPWM(0,0,servo_pwm[0][2]);
   pca.setPWM(1,0,servo_pwm[1][2]);
   pca.setPWM(2,0,servo_pwm[2][2]);
+  double theta1 = map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180;
+  double theta2 = map(servo_pwm[1][2],servo_pwm[1][0],servo_pwm[1][1],0,180) * M_PI / 180;
+  double theta3 = map(servo_pwm[2][2],servo_pwm[2][0],servo_pwm[2][1],-90,90) * M_PI / 180;
+  Serial.print("theta1 is:");
+  Serial.println(theta1 * 180 / M_PI);
+  Serial.print("theta2 is:");
+  Serial.println(theta2 * 180 / M_PI);
+  Serial.print("theta3 is:");
+  Serial.println(theta3 * 180 / M_PI);
+  x = (15*cos(theta2) + 15 * cos(theta2+theta3))*cos(theta1);
+  y = (15*cos(theta2) + 15 * cos(theta2+theta3))*sin(theta1);
+  z = 10 + 15*sin(theta2) + 15*sin(theta2+theta3);
+  Serial.print("X is:");
+  Serial.println(x);
+  Serial.print("Y is:");
+  Serial.println(y);
+  Serial.print("Z is:");
+  Serial.println(z);
 
   while(waiting_response){
     Serial.println("Waiting for connection...");
