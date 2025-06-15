@@ -84,8 +84,8 @@ double angleToPwm(double angle,double min, double max){
 //pca9685 + motor variables
 Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver();
 int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
-{120,480,angleToPwm(90,120,480)},
-{SERVOMIN,510,SERVOMIN},
+{120,480,angleToPwm(0,120,480)},
+{SERVOMIN,510,angleToPwm(90,SERVOMIN,510)},
 {SERVOMIN,SERVOMAX,SERVOMIN},
 {SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
 {SERVOMIN,450,SERVOMIN}};
@@ -116,17 +116,17 @@ void calculateInverseKinematics(double x, double y, double z){
   Serial.print("s is:");
   Serial.println(s);
   double theta3 = -acos( (sq(r) + sq(s) - sq(15) - sq(15))/(2 * 15 * 15) );
-  Serial.print("theta3:");
-  Serial.println(theta3 * 180 / M_PI);
   double inner1 = (15 + 15*cos(theta3)) * s;
   double inner2 = 15 * r * sin(theta3);
   double theta2 = asin((inner1 - inner2)/(sq(r) + sq(s)));
   Serial.print("THETA 2:");
   Serial.println(theta2 * 180 / M_PI);
-  // theta3 = constrain(theta3 , -90,90);
+  theta3 = constrain(theta3 * 180 / M_PI, -90,90);
+  Serial.print("-theta3:");
+  Serial.println(-theta3);
   // theta2 = constrain(theta2 , 0, 180);
-  // pca.setPWM(1,0,angleToPwm(theta2,servo_pwm[1][0],servo_pwm[1][1]));
-  // pca.setPWM(2,0,map(theta3,-90,90,servo_pwm[2][0],servo_pwm[2][1]));
+  pca.setPWM(1,0,angleToPwm(theta2 * 180 / M_PI,servo_pwm[1][0],servo_pwm[1][1]));
+  pca.setPWM(2,0,map(-theta3,-90,90,servo_pwm[2][0],servo_pwm[2][1]));
   theta1 = theta1 * M_PI /180;
   // theta2 = theta2 * M_PI / 180;
   // theta3 = theta3 * M_PI / 180;
@@ -177,14 +177,14 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.print("Scale:");
   Serial.println(scale);
   if(scale != 0){
-    int max_rad = sqrt(900 - sq(z));
-    int old_rad = sqrt(sq(x) + sq(y)) + 0.5*scale;
+    double max_rad = sqrt(900 - sq(z-10));
+    double old_rad = sqrt(sq(x) + sq(y)) + 0.5*scale;
     Serial.print("RADIUS:");
     Serial.println(old_rad);
     Serial.print("MAX RADIUS:");
     Serial.println(max_rad);
     if(old_rad <= max_rad  && old_rad >= 15){
-      double angle = map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180;
+      double angle = atan2(y,x);
       x = old_rad * cos(angle);
       y = old_rad * sin(angle);
       Serial.print("NEW X is:");
@@ -200,6 +200,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   // z += received_payload.buttons[5] - received_payload.buttons[4]; 
   // z = constrain(z,-20,30);
   calculateInverseKinematics(x,y,z);
+
   // servo_pwm[3] = servo_pwm[3] + (SERVOSTEP*received_payload.buttons[6]) - (SERVOSTEP*received_payload.buttons[7]); 
   // servo_pwm[3] = constrain(servo_pwm[3],SERVOMIN,SERVOMAX);
   // pca.setPWM(3,0,servo_pwm[3]);
@@ -263,6 +264,7 @@ void setup(){
   //Αρχικοποίηση του PCA9685
   pca.begin();
   pca.setPWMFreq(50);
+  yield();
   pca.setPWM(0,0,servo_pwm[0][2]);
   pca.setPWM(1,0,servo_pwm[1][2]);
   pca.setPWM(2,0,servo_pwm[2][2]);
