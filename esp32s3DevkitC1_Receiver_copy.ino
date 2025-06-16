@@ -18,7 +18,7 @@
 #define I2Caddress 0x07
 #define SERVOMIN 150
 #define SERVOMAX 600
-#define SERVOSTEP 15
+#define SERVOSTEP 10
 
 //TREX VARIABLES
 int sv[6]={1500,1500,1500,1500,1500,1500};                 // servo positions: if == 0 then the servo is not used
@@ -83,63 +83,14 @@ double angleToPwm(double angle,double min, double max){
 }
 //pca9685 + motor variables
 Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver();
-int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
-{120,480,angleToPwm(0,120,480)},
-{SERVOMIN,510,angleToPwm(90,SERVOMIN,510)},
+int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(0,SERVOMIN,SERVOMAX)},
+{120,SERVOMAX,angleToPwm(0,120,SERVOMAX)},
+{SERVOMIN,490,angleToPwm(90,SERVOMIN,510)},
 {SERVOMIN,SERVOMAX,SERVOMIN},
 {SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
 {SERVOMIN,450,SERVOMIN}};
-double x, y , z ;
-
 //pca9685 + motor variables
 
-
-void calculateInverseKinematics(double x, double y, double z){
-  // Serial.print("X is:");
-  // Serial.println(x);
-  // Serial.print("Y is:");
-  // Serial.println(y);
-  // Serial.print("Z is:");
-  // Serial.println(z);
-  // double l = sqrt(sq(x) + sq(y));
-  // double h = sqrt(sq(l) + sq(z));
-  // double phi = atan(z/l) * 180 / M_PI;
-  // double theta = acos((h/2)/75) * (180 / M_PI);
-  // double a1 = phi + theta;
-  // double a2 = 90 + phi - theta;
-  //b = angleToPwm(b + 90);
-  double theta1 = atan2(y,x) * 180 / M_PI;
-  double r = sqrt(sq(x) + sq(y));
-  double s = z-10;
-  Serial.print("r is:");
-  Serial.println(r);
-  Serial.print("s is:");
-  Serial.println(s);
-  double theta3 = -acos( (sq(r) + sq(s) - sq(15) - sq(15))/(2 * 15 * 15) );
-  double inner1 = (15 + 15*cos(theta3)) * s;
-  double inner2 = 15 * r * sin(theta3);
-  double theta2 = asin((inner1 - inner2)/(sq(r) + sq(s)));
-  Serial.print("THETA 2:");
-  Serial.println(theta2 * 180 / M_PI);
-  theta3 = constrain(theta3 * 180 / M_PI, -90,90);
-  Serial.print("-theta3:");
-  Serial.println(-theta3);
-  // theta2 = constrain(theta2 , 0, 180);
-  pca.setPWM(1,0,angleToPwm(theta2 * 180 / M_PI,servo_pwm[1][0],servo_pwm[1][1]));
-  pca.setPWM(2,0,map(-theta3,-90,90,servo_pwm[2][0],servo_pwm[2][1]));
-  theta1 = theta1 * M_PI /180;
-  // theta2 = theta2 * M_PI / 180;
-  // theta3 = theta3 * M_PI / 180;
-  x = (15*cos(theta2) + 15 * cos(theta2+theta3))*cos(theta1);
-  y = (15*cos(theta2) + 15 * cos(theta2+theta3))*sin(theta1);
-  z = 10 + 15*sin(theta2) + 15*sin(theta2+theta3);
-  Serial.print("X is:");
-  Serial.println(x);
-  Serial.print("Y is:");
-  Serial.println(y);
-  Serial.print("Z is:");
-  Serial.println(z);
-}
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 }
@@ -153,65 +104,55 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     return;
   }
   memcpy(&received_payload, incomingData, sizeof(received_payload));
-  double new_base_rot = 10*(received_payload.buttons[1] - received_payload.buttons[0]); 
-  //double base_angle = map(servo_pwm[0][2], servo_pwm[0][0], servo_pwm[0][1], 0, 180) * M_PI/180;
-  
-  if(new_base_rot != 0){
-    double old_base_rot = map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180);
-    // Serial.print("old is:");
-    // Serial.println(old_base_rot);
-    // Serial.print("new is:");
-    servo_pwm[0][2] = constrain(servo_pwm[0][2]+new_base_rot,servo_pwm[0][0],servo_pwm[0][1]);
-    new_base_rot = map(servo_pwm[0][2],SERVOMIN,SERVOMAX,0,180);
-    // Serial.println(new_base_rot);
-    pca.setPWM(0,0,servo_pwm[0][2]); 
-    double base_angle = (new_base_rot - old_base_rot) * M_PI/180;
-    // Serial.print("Base Angle:");
-    // Serial.println(base_angle);
-    double temp_x = x;
-    x = x * cos(base_angle) - y * sin(base_angle);
-    y = temp_x * sin(base_angle) + y * cos(base_angle);
-    
+  int input1 = received_payload.buttons[1] - received_payload.buttons[0];
+  int input2 = received_payload.buttons[3] - received_payload.buttons[2];
+  int input3 = received_payload.buttons[5] - received_payload.buttons[4];
+  int input4 = received_payload.buttons[7] - received_payload.buttons[6];
+  int input5 = received_payload.buttons[9] - received_payload.buttons[8];
+  int input6 = received_payload.buttons[11] - received_payload.buttons[10];
+  Serial.print("Input: ");
+  Serial.println(input1);
+  Serial.print("Input: ");
+  Serial.println(input2);
+  Serial.print("Input: ");
+  Serial.println(input3);
+  Serial.print("Input: ");
+  Serial.println(input4);
+  Serial.print("Input: ");
+  Serial.println(input5);
+  Serial.print("Input: ");
+  Serial.println(input6);
+  if(input1 != 0){
+    servo_pwm[0][2] = constrain(servo_pwm[0][2] + input1 * SERVOSTEP, servo_pwm[0][0], servo_pwm[0][1]);
+    pca.setPWM(0,0,servo_pwm[0][2]);
   }
-  int scale = received_payload.buttons[3] - received_payload.buttons[2];
-  Serial.print("Scale:");
-  Serial.println(scale);
-  if(scale != 0){
-    double max_rad = sqrt(900 - sq(z-10));
-    double old_rad = sqrt(sq(x) + sq(y)) + 0.5*scale;
-    Serial.print("RADIUS:");
-    Serial.println(old_rad);
-    Serial.print("MAX RADIUS:");
-    Serial.println(max_rad);
-    if(old_rad <= max_rad  && old_rad >= 15){
-      double angle = atan2(y,x);
-      x = old_rad * cos(angle);
-      y = old_rad * sin(angle);
-      Serial.print("NEW X is:");
-      Serial.println(x);
-      Serial.print("NEW Y is:");
-      Serial.println(y);
-    }
+  if(input2 != 0){
+    Serial.print("Inputted:");
+    Serial.println(servo_pwm[1][2] + input2 * SERVOSTEP);
+    Serial.print("Low limit:");
+    Serial.println(servo_pwm[1][0]);
+    Serial.print("upper limit:");
+    Serial.println(servo_pwm[1][1]);
+    servo_pwm[1][2] = constrain(servo_pwm[1][2] + input2 * SERVOSTEP, servo_pwm[1][0], servo_pwm[1][1]);
+    pca.setPWM(1,0,servo_pwm[1][2]);
   }
-  // Serial.print("AFTER SCALE X is:");
-  // Serial.println(x);
-  // Serial.print("AFTER SCALE Y is:");
-  // Serial.println(y);
-  // z += received_payload.buttons[5] - received_payload.buttons[4]; 
-  // z = constrain(z,-20,30);
-  calculateInverseKinematics(x,y,z);
+  if(input3 != 0){
+    servo_pwm[2][2] = constrain(servo_pwm[2][2] + input3 * SERVOSTEP, servo_pwm[2][0], servo_pwm[2][1]);
+    pca.setPWM(2,0,servo_pwm[2][2]);
+  }
+  if(input4 != 0){
+    servo_pwm[3][2] = constrain(servo_pwm[3][2] + input4 * SERVOSTEP, servo_pwm[3][0], servo_pwm[3][1]);
+    pca.setPWM(3,0,servo_pwm[3][2]);
+  }
+  if(input5 != 0){
+    servo_pwm[4][2] = constrain(servo_pwm[4][2] + input5 * SERVOSTEP, servo_pwm[4][0], servo_pwm[4][1]);
+    pca.setPWM(4,0,servo_pwm[4][2]);
+  }
+  if(input6 != 0){
+    servo_pwm[5][2] = constrain(servo_pwm[5][2] + input6 * SERVOSTEP, servo_pwm[5][0], servo_pwm[5][1]);
+    pca.setPWM(5,0,servo_pwm[5][2]);
+  }
 
-  // servo_pwm[3] = servo_pwm[3] + (SERVOSTEP*received_payload.buttons[6]) - (SERVOSTEP*received_payload.buttons[7]); 
-  // servo_pwm[3] = constrain(servo_pwm[3],SERVOMIN,SERVOMAX);
-  // pca.setPWM(3,0,servo_pwm[3]);
-
-  // servo_pwm[4] = servo_pwm[4] + (SERVOSTEP*received_payload.buttons[8]) - (SERVOSTEP*received_payload.buttons[9]); 
-  // servo_pwm[4] = constrain(servo_pwm[4],SERVOMIN,SERVOMAX);
-  // pca.setPWM(4,0,servo_pwm[4]);
-
-  // servo_pwm[5] = servo_pwm[5] + (SERVOSTEP*received_payload.buttons[10]) - (SERVOSTEP*received_payload.buttons[11]); 
-  // servo_pwm[5] = constrain(servo_pwm[5],SERVOMIN,SERVOMAX);
-  // pca.setPWM(5,0,servo_pwm[5]);
 }
 
 void setup(){
@@ -264,29 +205,11 @@ void setup(){
   //Αρχικοποίηση του PCA9685
   pca.begin();
   pca.setPWMFreq(50);
-  yield();
   pca.setPWM(0,0,servo_pwm[0][2]);
   pca.setPWM(1,0,servo_pwm[1][2]);
   pca.setPWM(2,0,servo_pwm[2][2]);
-  double theta1 = map(servo_pwm[0][2],servo_pwm[0][0],servo_pwm[0][1],0,180) * M_PI / 180;
-  double theta2 = map(servo_pwm[1][2],servo_pwm[1][0],servo_pwm[1][1],0,180) * M_PI / 180;
-  double theta3 = map(servo_pwm[2][2],servo_pwm[2][0],servo_pwm[2][1],-90,90) * M_PI / 180;
-  Serial.print("theta1 is:");
-  Serial.println(theta1 * 180 / M_PI);
-  Serial.print("theta2 is:");
-  Serial.println(theta2 * 180 / M_PI);
-  Serial.print("theta3 is:");
-  Serial.println(theta3 * 180 / M_PI);
-  x = (15*cos(theta2) + 15 * cos(theta2+theta3))*cos(theta1);
-  y = (15*cos(theta2) + 15 * cos(theta2+theta3))*sin(theta1);
-  z = 10 + 15*sin(theta2) + 15*sin(theta2+theta3);
-  Serial.print("X is:");
-  Serial.println(x);
-  Serial.print("Y is:");
-  Serial.println(y);
-  Serial.print("Z is:");
-  Serial.println(z);
-
+  yield();
+   
   while(waiting_response){
     Serial.println("Waiting for connection...");
     delay(100);
