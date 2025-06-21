@@ -68,7 +68,8 @@ unsigned long time_elapsed = 0;
 int current_yaw_index = 0;
 int desired_angle = 0;
 int speed_modes[] = {140,170,200,250};
-int increment_per_step[] = {25,20,18,15};
+int increment_per_step[] = {25,25,22,20};
+bool world_pos_rotating = false;
 
 //Μεταβλητές οθόνης
 const int TFT_CS = 18;
@@ -150,7 +151,8 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   int battery_voltage = (rec_payload.batteryVoltageHighByte<<8) | rec_payload.batteryVoltageLowByte;
   //Καθώς κατά την χρήση του οχήματος
   if(abs(contr_payload.wheel_speed[0]) > 60 || abs(contr_payload.wheel_speed[1]) > 60){
-    battery_voltage += 40;
+    Serial.println("Balanced Battery Voltage");
+    battery_voltage += 0.009 * (rec_payload.leftCurrent + rec_payload.rightCurrent);
   }
   if(batteryVoltageTable[battery_index][0] > battery_voltage){
     do{
@@ -429,14 +431,7 @@ void loop(){
       printDisplay();
       last_status = 0;
     }
-    if(rec_payload.impactDetected){
-      contr_payload.wheel_speed[0] = 0;
-      contr_payload.wheel_speed[1] = 0;
-      esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&contr_payload, sizeof(contr_payload));
-      esp_task_wdt_reset();
-      delay(100);
-      return;
-    }
+    
     contr_payload.buttons[0] = digitalRead(button1);
     contr_payload.buttons[1] = digitalRead(button2);
     contr_payload.buttons[2] = digitalRead(button3);
@@ -528,7 +523,8 @@ void TankControlMovement(int joystickX,int joystickY){
   int desired_angle = int(atan2((double)joystickY,(double)joystickX) * 180/M_PI); 
   if(abs(desired_angle) > 135 && movement_vector_magnitude > threshold){
     //Η μέγιστη ταχύτητα που θέλουμε να φτάσουν οι τροχοί
-    int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
+    //int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
+    int target_speed = 150;
     //Η ταχύτητα των αριστερών τροχών
     contr_payload.wheel_speed[0] -= increment_per_step[speed_mode_index];
     if(contr_payload.wheel_speed[0] < -target_speed){
@@ -549,7 +545,8 @@ void TankControlMovement(int joystickX,int joystickY){
   }
   else if(abs(desired_angle) < 45 && movement_vector_magnitude > threshold){
     //Η μέγιστη ταχύτητα που θέλουμε να φτάσουν οι τροχοί
-    int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
+    //int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
+    int target_speed = 150;
     //Η ταχύτητα των αριστερών τροχών
     contr_payload.wheel_speed[0] += increment_per_step[speed_mode_index];
     if(contr_payload.wheel_speed[0] > target_speed){
@@ -610,19 +607,25 @@ void DirectionalMovement(int joystickX,int joystickY){
   float movement_vector_length = sqrt(vector_length);
   float movement_vector_magnitude = constrain(movement_vector_length/512,0,1);
   //Υπολογισμός διαφοράς γωνίας μεταξύ οχήματος και γωνίας περιστροφής που ορίζει ο χρήστης
+  Serial.print("Desired angle:");
+  Serial.println(desired_angle);
   int angle = int(rec_payload.carYaw - (desired_angle + current_yaw));
   angle = angle%360;
   //Μετατροπή γωνίας σε εύρος -180 έως 180 μοίρες
   if(angle > 180){angle -= 360;}
   if(angle < -180){angle += 360;}
+  Serial.print("Target angle:");
+  Serial.println(angle);
   int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
   if(movement_vector_magnitude > 0.5){
-    if(abs(angle) > 10){
+    if(abs(angle) > 15){
       //Το 0 αντιστοιχεί σε φορά περιστροφής αντίστροφη του ρολογιού ενώ το 1 ίδια με αυτού
       bool rotate_direction = (angle < 0); 
       float temp_rotation_speed = abs(angle)/180.0;
       float rotation_speed = constrain(temp_rotation_speed,0.6,1);
       if(rotate_direction){
+        world_pos_rotating = true;
+        target_speed = 150;
         //Η ταχύτητα των αριστερών τροχών
         contr_payload.wheel_speed[0] -= increment_per_step[speed_mode_index];
         if(contr_payload.wheel_speed[0] < -target_speed){
@@ -640,6 +643,8 @@ void DirectionalMovement(int joystickX,int joystickY){
         Serial.println(contr_payload.wheel_speed[1]);
       }
       else{
+        world_pos_rotating = true;
+        target_speed = 150;
         //Η ταχύτητα των αριστερών τροχών
         contr_payload.wheel_speed[0] += increment_per_step[speed_mode_index];
         if(contr_payload.wheel_speed[0] > target_speed){
@@ -658,6 +663,16 @@ void DirectionalMovement(int joystickX,int joystickY){
       }
     }
     else{
+        if(world_pos_rotating){
+          world_pos_rotating = false;
+          contr_payload.wheel_speed[0] = 0;
+          contr_payload.wheel_speed[1] = 0;
+          Serial.print("Left motor Speed:");
+          Serial.println(contr_payload.wheel_speed[0]);
+          Serial.print("Right motor Speed:");
+          Serial.println(contr_payload.wheel_speed[1]);
+          return;
+        }
         //Η ταχύτητα των αριστερών τροχών
         contr_payload.wheel_speed[0] += increment_per_step[speed_mode_index];
         //Η ταχύτητα των δεξιών τροχών
@@ -673,5 +688,15 @@ void DirectionalMovement(int joystickX,int joystickY){
       Serial.print("Right motor Speed:");
       Serial.println(contr_payload.wheel_speed[1]);
     }
+  }
+  else{
+    world_pos_rotating = false;
+    contr_payload.wheel_speed[0] = 0;
+    contr_payload.wheel_speed[1] = 0;
+    Serial.print("Left motor Speed:");
+    Serial.println(contr_payload.wheel_speed[0]);
+    Serial.print("Right motor Speed:");
+    Serial.println(contr_payload.wheel_speed[1]);
+    return;
   }
 }
