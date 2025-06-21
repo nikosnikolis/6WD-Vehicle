@@ -68,7 +68,7 @@ float current_yaw = 0;
 float prev_yaw = 0;
 unsigned long start_timer = 0;
 unsigned long time_elapsed = 0;
-unsigned long stabilization_time = 5000;
+unsigned long stabilization_time = 2000;
 uint8_t buffer[64]; 
 Quaternion quaternion;
 VectorFloat gravity;
@@ -87,9 +87,17 @@ int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
 {SERVOMIN,490,angleToPwm(90,SERVOMIN,490)},
 {SERVOMIN,SERVOMAX,SERVOMIN},
 {SERVOMIN,SERVOMAX,SERVOMIN},
-{SERVOMIN,500,150}};
+{270,370,270}};
 //pca9685 + motor variables
 
+
+Quaternion Multiply_Quaternion(Quaternion q1, Quaternion q2){
+  return Quaternion(q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z,
+        q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+        q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+        q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
+    );
+}
 
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
 }
@@ -207,7 +215,7 @@ void setup(){
   pca.setPWM(2,0,servo_pwm[2][2]);
   pca.setPWM(3,0,servo_pwm[3][2]);
   pca.setPWM(4,0,servo_pwm[4][2]);
-  pca.setPWM(5,0,150);
+  pca.setPWM(5,0,servo_pwm[5][2]);
   
   yield();
    
@@ -239,6 +247,7 @@ void loop(){
     rgb.show();
     if(mpu.dmpGetCurrentFIFOPacket(buffer)){
       mpu.dmpGetQuaternion(&quaternion, buffer);
+      quaternion = Multiply_Quaternion(quaternion, Quaternion(cos(PI/4), sin(PI/4), 0, 0));
       mpu.dmpGetGravity(&gravity, &quaternion);
       mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
       current_yaw = -ypr[0] * 180/ M_PI;
@@ -246,10 +255,12 @@ void loop(){
         starting_yaw += 0.95 * (current_yaw - prev_yaw);
         prev_yaw = current_yaw;
       }
-      current_yaw = current_yaw - starting_yaw + 110;
+      current_yaw = current_yaw - starting_yaw + 90;
       current_yaw += ((current_yaw < 0) * 360);
-      ack_payload.carYaw = current_yaw;
       current_yaw = int(current_yaw) % 360;
+      Serial.print("Car Yaw:");
+      Serial.println(current_yaw);
+      ack_payload.carYaw = current_yaw;
     }
     MasterSend(startbyte,2,received_payload.joystick[0],lmbrake,received_payload.joystick[1],rmbrake,sv[0],sv[1],sv[2],sv[3],sv[4],sv[5],devibrate,sensitivity,lowbat,i2caddr,i2cfreq);
     delay(50);
