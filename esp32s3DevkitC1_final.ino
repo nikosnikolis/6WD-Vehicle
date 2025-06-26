@@ -1,3 +1,5 @@
+//Author Nikolis Nikolaos
+
 #include <WiFi.h>
 #include <esp_now.h>
 #include <SPI.h>
@@ -14,7 +16,7 @@
 uint8_t slaveAddress[] = {0x24,0xec,0x4a,0x20,0x7b,0x28};
 bool waiting_response = true;
 unsigned long heartbeat_timer = 0;
-byte last_status = 2; //0 is connected // 1 is menu // 2 is disconnected
+byte last_status = 2; //0 είναι συνδεδεμένο // 1 είναι μενού ρυθμίσεων // 2 είναι αποσυνδεδεμένο
 
 const int batteryVoltageTable[][3] = {{1680,100,ST77XX_GREEN},{1660,95,ST77XX_GREEN},{1644,90,ST77XX_GREEN},
 {1632,85,ST77XX_GREEN},{1608,80,ST77XX_GREEN},{1592,75,ST77XX_GREEN},
@@ -44,6 +46,7 @@ struct receiver_payload rec_payload;
 esp_now_peer_info_t peerInfo;
 String success;
 
+//Μεταβλητές κουμπιών
 const int button1 = 14;
 const int button2 = 17;
 const int button3 = 13;
@@ -58,15 +61,19 @@ const int button10 = 36;
 const int button11 = 48;
 const int button12 = 47;
 
+//Μεταβλητές joystick
 const int joystick_x = 2;
 const int joystick_y = 1;
 int joystick_x_value = 0;
 int joystick_y_value = 0;
 const int joystick_btn = 38;
+//Ελάχιστος χρόνος μεταξύ διαδοχικών πιέσεων του κουμπιού του joystick
 const int button_deload_time = 800;
 unsigned long time_elapsed = 0;
+//Μεταβλητές για την περιστροφή του χειριστηρίου και της γωνίας του joystick
 int current_yaw_index = 0;
 int desired_angle = 0;
+//Μεταβλητές για τον έλεγχο της ταχύτητας
 int speed_modes[] = {140,170,200,250};
 int increment_per_step[] = {25,25,22,20};
 bool world_pos_rotating = false;
@@ -88,7 +95,7 @@ float starting_yaw = 0;
 float current_yaw = 0;
 float prev_yaw = 0;
 unsigned long start_timer = 0;
-unsigned long stabilization_time = 5000;
+unsigned long stabilization_time = 2000;
 uint8_t buffer[64]; 
 Quaternion quaternion;
 VectorFloat gravity;
@@ -149,11 +156,14 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
   //Αποθήκευση της τάσης της μπαταρίας
   int battery_voltage = (rec_payload.batteryVoltageHighByte<<8) | rec_payload.batteryVoltageLowByte;
-  //Καθώς κατά την χρήση του οχήματος
+  //Καθώς κατά την χρήση του οχήματος η τάση εξόδου της μπαταρίας πέφτει
+  //υπολογίζουμε την πραγματική της τιμή προσθέτοντας την μετρούμενη τάση
+  //συν την εσωτερική αντίσταση της μπαταρίας (0.009 Ohm) επί το συνολικό ρεύμα που χρειάζονται οι κινητήρες
   if(abs(contr_payload.wheel_speed[0]) > 60 || abs(contr_payload.wheel_speed[1]) > 60){
     Serial.println("Balanced Battery Voltage");
-    battery_voltage += 0.009 * (rec_payload.leftCurrent + rec_payload.rightCurrent);
+    battery_voltage += 0.02 * (rec_payload.leftCurrent + rec_payload.rightCurrent);
   }
+  //Προσπέλαση του πίνακα τιμών της μπαταρίας μέχρι να βρεθεί η σωστή τιμή ποσοστού της μπαταρίας
   if(batteryVoltageTable[battery_index][0] > battery_voltage){
     do{
       battery_index++;  
@@ -180,7 +190,6 @@ void printDisplay(){
   display.print("Robot Bat:");
   battery_index = 0;
   display.setCursor(0,8);
-  //display connection status
   display.print("Movement Mode:");
   display.setCursor(84,8);
   if(movement_mode){
@@ -330,14 +339,18 @@ void setup(){
 }
  
 void loop(){
+  //Είσοδος στο μενού ρυθμίσεων
   if(menuMode){
+    //Αν στην προηγούμενη επανάληψη δεν ήμασταν στο μενού ρυθμίσεων πρέπει να καθαρίσουμε την οθόνγ και να εκτυπώσουμε στην οθόνη το σωστό μενού
     if(last_status == 0){
       printMenu();
       last_status = 1;
+      //Ακινητοποιούμε το όχημα και καθαρίσουμε την τιμή των κουμπιών
       contr_payload.wheel_speed[0] = 0;
       contr_payload.wheel_speed[1] = 0;
       memset(contr_payload.buttons,1,sizeof(contr_payload.buttons)); 
     }
+    //Ορίζουμε ένα deadzone ώστε να μην κουνηθεί προς την λάθος κατεύθυνση η μπάρα επιλογής
     joystick_y_value = analogRead(joystick_y) - 512;
     if(abs(joystick_y_value) <= 150){
         joystick_y_value = 0;
@@ -346,6 +359,7 @@ void loop(){
     Serial.println(joystick_y_value);
     byte temp_value = option_index;
     if(joystick_y_value < 0){
+      //Τα κείμενα Speed Mode και Movement Mode δεν είναι επιλέξιμα οπότε τα προσπερνάμε
       option_index++;
       if(option_index == 3){
         option_index++;
@@ -353,6 +367,7 @@ void loop(){
       else if(option_index == 9){
         option_index = 1;
       }
+      //Χρωματισμός της μπάρας επιλογής με άσπρο φόντο και μαύρα γράμματα, επαναφορά της προηγούμενης επιλογής σε μαύρο φόντο με άσπρα γράμματα
       Serial.print("Temp value:");
       Serial.println(temp_value);
       Serial.print("Option index:");
@@ -365,6 +380,7 @@ void loop(){
       display.print(menuText[option_index]);
       display.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     }
+    //Τα κείμενα Speed Mode και Movement Mode δεν είναι επιλέξιμα οπότε τα προσπερνάμε
     else if(joystick_y_value > 0){
       option_index--;
       if(option_index == 3){
@@ -373,6 +389,7 @@ void loop(){
       else if(option_index == 0){
         option_index = 8;
       }
+      //Χρωματισμός της μπάρας επιλογής με άσπρο φόντο και μαύρα γράμματα, επαναφορά της προηγούμενης επιλογής σε μαύρο φόντο με άσπρα γράμματα
       display.fillRect(10 - 10*int(temp_value/8),16 + 8 * temp_value,84,8,ST77XX_BLACK);
       display.setCursor(10 - 10*int(temp_value/8),16 + 8 * temp_value);
       display.print(menuText[temp_value]);
@@ -381,7 +398,7 @@ void loop(){
       display.print(menuText[option_index]);
       display.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
     }
-    
+    //Έλεγχος τελευταίας πίεσης του κουμπιού του joystick
     if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
       time_elapsed = millis();
       if((option_index == 1 || option_index == 2) && movement_mode != (option_index - 1)){
@@ -390,29 +407,37 @@ void loop(){
         display.setCursor(0,24 + 8*movement_mode);
         display.print("o");
       }
-      else if((option_index == 4 || option_index == 5 || option_index == 6 || option_index == 7) && speed_mode_index != (option_index - 4)){
+      //Αν γίνει επιλογή ρύθμισης ταχύτητας διαφορετικής της τωρινής αλλάζουμε θέση στον δείκτη επιλογής 'ο'
+      else if((option_index >= 4 && option_index <= 7) && speed_mode_index != (option_index - 4)){
         display.fillRect(0,48 + (speed_mode_index * 8),6,8,ST77XX_BLACK);
         speed_mode_index = option_index - 4;
         display.setCursor(0,48 + (speed_mode_index * 8));
         display.print("o");
       }
+      //Απενεργοποίηση του μενού ρυθμίσεων
       else if(option_index == 8){
         menuMode = false;
         last_status = 1;
       }
     }
+    //Εκτύπωση των ρυθμίσεων για λόγους debug
     Serial.print("Speed Mode:");
     Serial.println(menuText[4+speed_mode_index]);
     Serial.print("Movement Mode:");
     Serial.println(movement_mode);
+    //Αποστολή πακέτου ώστε να μην χαθεί το heartbeat του χειριστηρίου
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&contr_payload, sizeof(contr_payload));
+    //Επαναφορά watchdog timer
     esp_task_wdt_reset();
     delay(100);
     return;
   }
 
+  //Κατά την λήψη πακέτου γίνεται επαναφορά του heartbeat timer, αν δεν γίνει εντός 500ms ενώ ο αναμενόμενος χρόνος μεταξύ των πακέτων ειναι 100ms
+  //το σύστημα αναγνωρίζει ότι χάθηκε η σύνδεση και μπαίνει σε κατάσταση αναμονής
   if(millis() - heartbeat_timer > 500){
     Serial.println("No heartbeat");
+    //Αν η προηγούμενη κατάσταση δεν ήταν η αναμονή πακέτου καθαρίζουμε την οθόνη και εκτυπώνουμε το σωστό μήνυμα
     if(last_status != 2){
       last_status = 2;
       display.fillScreen(ST77XX_BLACK);
@@ -422,16 +447,21 @@ void loop(){
       display.print("Waiting for connection...");
       Serial.println("DISCONNECTED");
     }
+    //Αποστολή πακέτου αναγνώρισης
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&waiting_response, sizeof(waiting_response));
+    //Επαναφορά watchdog timer
     esp_task_wdt_reset();
     delay(100);
   }
+  //Λήψη δεδομένων χειριστηρίου, υπολογισμός ταχύτητας τροχών και αποστολή του κύριου πακέτου χειρισμού του οχήματος υπό φυσιολογικές συνθήκες
   else{
     if(last_status != 0){
       printDisplay();
       last_status = 0;
     }
-    
+    //Ανάγνωση εισόδου κουμπιών του χειριστηρίου
+    //1 = μη πιεσμένο κουμπί
+    //0 = πιεσμένο κουμπί
     contr_payload.buttons[0] = digitalRead(button1);
     contr_payload.buttons[1] = digitalRead(button2);
     contr_payload.buttons[2] = digitalRead(button3);
@@ -445,13 +475,16 @@ void loop(){
     contr_payload.buttons[10] = digitalRead(button11);
     contr_payload.buttons[11] = digitalRead(button12);
     
+    //Αν γίνει πίεση του κουμπιού του joystick στην επόμενη επανάληψη ενεργοποιούμε το μενού ρυθμίσεων
     if(digitalRead(joystick_btn) == HIGH && millis() - time_elapsed > button_deload_time){
       time_elapsed = millis();
       menuMode = !menuMode;
       Serial.println("Activated Menu mode");
     }
+    //Ανάγνωση της εισόδου του joystick
     joystick_x_value = 1023-analogRead(joystick_x) - 512;
     joystick_y_value = analogRead(joystick_y) - 512;
+    //Ορισμός deadzone για να μηδενίσουμε τον θόρυβο από τα καλώδια
     if(abs(joystick_x_value) <= 70){
         joystick_x_value = 0;
       }
@@ -459,41 +492,29 @@ void loop(){
     if(abs(joystick_y_value) <= 70){
         joystick_y_value = 0;
       }
-    // Serial.print("X joystick:");
-    // Serial.println(joystick_x_value);
-    // Serial.print("Y joystick:");
-    // Serial.println(joystick_y_value);
+    //Λήψη πακέτου περιστροφής από το MPU6050
     if(mpu.dmpGetCurrentFIFOPacket(buffer)){
       mpu.dmpGetQuaternion(&quaternion, buffer);
       mpu.dmpGetGravity(&gravity, &quaternion);
       mpu.dmpGetYawPitchRoll(ypr, &quaternion, &gravity);
     }
-    //Here we calculate the yaw of the controller, first in radians. We invert the value so that clockwise rotation decreases the value (by default the mpu6050 module does the opposite CW movement increases the value)
-    //then we use *180/M_PI to turn the radians into degrees from -180 to 180 then we transform it to 0-360 degrees since the joystick and the rc car MPU6050 also use the same logic 
-    current_yaw = -ypr[0];
-    // Serial.print("Current yaw rad:");
-    // Serial.print(current_yaw);
-    current_yaw = current_yaw * (180 / M_PI);
-    // Serial.print("Current yaw -180 180:");
-    // Serial.print(current_yaw);
+    //Μετατροπή του yaw σε μοίρες με εύρος τιμών -180 έως 180
+    current_yaw = -ypr[0] * (180 / M_PI);
+    //Μετατροπή εύρους σε 0 έως 360
     current_yaw += (current_yaw<0)*360;
-    // Serial.print("Current yaw 0 360:");
-    // Serial.print(current_yaw);
-    //the mpu6050 module uses a DMP (digital motion processor) which takes the data from the gyroscope and acceletometer and applies some calculations instead of them needed to be added by us, like kalman filters etc
-    //till the DMP warms up and has stabilized we use the current minus the previous yaw value to calculate the starting yaw
+    
+    //Κατα την ενεργοποίηση του DMP χρειάζεται να περάσουν μερικά δευτερόλεπτα ώστε να σταθεροποιηθούν οι τιμές 
+    //συνεπώς για ένα μικρό χρονικό διάστημα επαναϋπολογίζουμε την αρχική περιστροφή του χειριστηρίου
     if(millis() - start_timer < stabilization_time){
         starting_yaw += 1 * (current_yaw - prev_yaw);
         prev_yaw = current_yaw;
       }
-    //we subtract the starting yaw from the current, to find the differential yaw Dyaw = yawFinal-yawStarting
+    //Υπολογίζουμε την περιστροφή του χειριστηρίου από την αρχική του περιστροφή
     current_yaw = current_yaw - starting_yaw;
     current_yaw += ((current_yaw < 0) * 360);
-    // Serial.print("Controller Yaw 0-360:");
-    // Serial.println(current_yaw);
-
-    // Serial.print("Desired Angle 0 360:");
-    // Serial.println(desired_angle);
     
+    //Σε περίπτωση που οι είσοδοι του joystick έχουν ξεπεράσει τα deadzone
+    //υπολογίζουμε τις τιμές ταχύτητας των τροχών αναλόγως την ρύθμιση του χρήστη
     if(joystick_x_value !=0 || joystick_y_value != 0){
       if(movement_mode){
         DirectionalMovement(joystick_x_value,joystick_y_value);
@@ -502,11 +523,14 @@ void loop(){
         TankControlMovement(joystick_x_value,joystick_y_value);
       }
     }
+    //Οι τιμές joystick_x_value και joystick_y_value είναι 0 συνεπώς είναι σα να ορίζουμε την ταχύτητα των τροχών 0
     else{
       contr_payload.wheel_speed[0] = joystick_x_value;
       contr_payload.wheel_speed[1] = joystick_y_value;
     }
+    //Αποστολή του πακέτου με τις τιμές των κουμπιών και της ταχύτητας των τροχών
     esp_err_t result = esp_now_send(slaveAddress, (uint8_t *)&contr_payload, sizeof(contr_payload));
+    //Επαναφορά του watchdog timer
     esp_task_wdt_reset();
     delay(100);
     }
@@ -523,8 +547,7 @@ void TankControlMovement(int joystickX,int joystickY){
   int desired_angle = int(atan2((double)joystickY,(double)joystickX) * 180/M_PI); 
   if(abs(desired_angle) > 135 && movement_vector_magnitude > threshold){
     //Η μέγιστη ταχύτητα που θέλουμε να φτάσουν οι τροχοί
-    //int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
-    int target_speed = 150;
+    int target_speed = 160;
     //Η ταχύτητα των αριστερών τροχών
     contr_payload.wheel_speed[0] -= increment_per_step[speed_mode_index];
     if(contr_payload.wheel_speed[0] < -target_speed){
@@ -545,8 +568,7 @@ void TankControlMovement(int joystickX,int joystickY){
   }
   else if(abs(desired_angle) < 45 && movement_vector_magnitude > threshold){
     //Η μέγιστη ταχύτητα που θέλουμε να φτάσουν οι τροχοί
-    //int target_speed = speed_modes[speed_mode_index] * movement_vector_magnitude;
-    int target_speed = 150;
+    int target_speed = 160;
     //Η ταχύτητα των αριστερών τροχών
     contr_payload.wheel_speed[0] += increment_per_step[speed_mode_index];
     if(contr_payload.wheel_speed[0] > target_speed){
@@ -625,7 +647,7 @@ void DirectionalMovement(int joystickX,int joystickY){
       float rotation_speed = constrain(temp_rotation_speed,0.6,1);
       if(rotate_direction){
         world_pos_rotating = true;
-        target_speed = 150;
+        target_speed = 160;
         //Η ταχύτητα των αριστερών τροχών
         contr_payload.wheel_speed[0] -= increment_per_step[speed_mode_index];
         if(contr_payload.wheel_speed[0] < -target_speed){
@@ -644,7 +666,7 @@ void DirectionalMovement(int joystickX,int joystickY){
       }
       else{
         world_pos_rotating = true;
-        target_speed = 150;
+        target_speed = 160;
         //Η ταχύτητα των αριστερών τροχών
         contr_payload.wheel_speed[0] += increment_per_step[speed_mode_index];
         if(contr_payload.wheel_speed[0] > target_speed){
