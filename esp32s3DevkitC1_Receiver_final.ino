@@ -75,12 +75,14 @@ VectorFloat gravity;
 float ypr[3];
 //car mpu variables
 
+//Συνάρτηση μετατροπής γωνίας σε PWM
+//Με βάση την ελάχιστη και μέγιστη τιμή PWM
 double angleToPwm(double angle,double min, double max){
   Serial.print("Turning Angle:");
   Serial.println(angle);
   return map(angle,0,180,min,max);
 }
-//pca9685 + motor variables
+//Μεταβλητές PCA9685
 Adafruit_PWMServoDriver pca = Adafruit_PWMServoDriver();
 int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
 {120,SERVOMAX,angleToPwm(100,120,SERVOMAX)},
@@ -88,7 +90,7 @@ int servo_pwm[][3] = {{SERVOMIN,SERVOMAX,angleToPwm(90,SERVOMIN,SERVOMAX)},
 {SERVOMIN,SERVOMAX,SERVOMIN},
 {SERVOMIN,SERVOMAX,SERVOMIN},
 {270,370,270}};
-//pca9685 + motor variables
+
 
 
 Quaternion Multiply_Quaternion(Quaternion q1, Quaternion q2){
@@ -321,8 +323,8 @@ void MasterReceive()
   Serial.print(i);Serial.println("mA");                           // T'REX left  motor current in mA
   
   i=Wire1.read()*256+Wire1.read();
-  //Serial.print("Left  Motor Encoder:\t");
-  //Serial.println(i);                                              // T'REX left  motor encoder count
+  Serial.print("Left  Motor Encoder:\t");
+  Serial.println(i);                                              // T'REX left  motor encoder count
   
   i=Wire1.read()*256+Wire1.read();
   ack_payload.rightCurrent = i;
@@ -330,8 +332,8 @@ void MasterReceive()
   Serial.print(i);Serial.println("mA");                           // T'REX right motor current in mA
   
   i=Wire1.read()*256+Wire1.read();
-  //Serial.print("Right Motor Encoder:\t");
-  //Serial.println(i);                                              // T'REX right motor encoder count
+  Serial.print("Right Motor Encoder:\t");
+  Serial.println(i);                                              // T'REX right motor encoder count
   
   i=Wire1.read()*256+Wire1.read();
   Serial.print("X-axis:\t\t");
